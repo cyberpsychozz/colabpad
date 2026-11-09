@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 .env
 data/
+backups/
 web/node_modules/
 app/static/
 coverage/

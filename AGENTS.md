@@ -5,6 +5,11 @@ The human-facing overview is `README.md` (Russian). The full architecture and sp
 `docs/ColabPad_Архитектура_и_ТЗ.docx` (Russian). If this file and the docx disagree, **this file wins**
 (it is newer), and flag the conflict to the human.
 
+**User-approved update (2026-11-09):** Docker packaging is now in scope.
+Use Dockerfile and compose.yaml for container builds and local startup; see
+docs/DOCKER.md. The bare-VPS setup in §10 remains an alternative. Run exactly
+one app container with one Uvicorn worker and persist SQLite in its named volume.
+
 ---
 
 ## 1. What we are building
@@ -38,7 +43,7 @@ Target: one developer, 7 days, ~50 hours.
 
 ## 3. Out of scope (do not implement)
 
-Accounts / login · personal / invite-only / open canvas types (only "canvas by link" exists) · view-only links, canvas passwords · public canvases, moderation, subscriptions · eraser, layers, extra brushes · undo in any form · timelapse video export · real payments (Pro subscription or pay-per-stroke) · mobile app, Telegram Mini App · Docker (deploy is bare VPS, see §10).
+Accounts / login · personal / invite-only / open canvas types (only "canvas by link" exists) · view-only links, canvas passwords · public canvases, moderation, subscriptions · eraser, layers, extra brushes · undo in any form · timelapse video export · real payments (Pro subscription or pay-per-stroke) · mobile app, Telegram Mini App.
 
 If a task seems to need one of these, stop and ask the human.
 
@@ -54,7 +59,7 @@ If a task seems to need one of these, stop and ask the human.
 | IDs | `nanoid` (Python package), size 10, default alphabet `A-Za-z0-9_-` |
 | Client | Vanilla JS + HTML5 Canvas, built with **Vite**, `socket.io-client` v4 |
 | Tests | `pytest`, `httpx` / FastAPI `TestClient` |
-| Prod | Ubuntu VPS, system-wide Nginx (not Docker), systemd, Let's Encrypt (certbot) |
+| Prod | Ubuntu VPS, system-wide Nginx, Docker Compose or systemd, Let's Encrypt (certbot) |
 
 `requirements.txt` (minimums; pin exact versions once it works):
 
@@ -311,6 +316,17 @@ The client never hardcodes these; it reads them from `GET /api/canvases/{id}`. C
 
 ## 9. Commands
 
+Docker (builds the frontend and Python dependencies without host installation):
+
+~~~bash
+docker compose up --build -d --wait
+docker compose down
+~~~
+
+The port is bound to host loopback. A named volume holds the DB; ordinary
+container replacement and compose down preserve it. Do not scale the app service.
+Local .env, data, Git and installed dependencies are excluded from build context.
+
 ```bash
 # backend
 python3.12 -m venv .venv && . .venv/bin/activate
@@ -330,7 +346,7 @@ FastAPI must serve `app/static` and fall back to `index.html` for `/` and `/c/{i
 
 ---
 
-## 10. Production deploy (default: bare VPS, system Nginx, no Docker)
+## 10. Production deploy (bare VPS alternative, system Nginx)
 
 - **Primary domain:** `collabpad.ru`. **Typo domain:** `colabpad.ru` → `301` to `https://collabpad.ru$request_uri`. `www.` variants of both also redirect to `https://collabpad.ru`.
 - DNS: A (and AAAA if available) records for `collabpad.ru`, `www.collabpad.ru`, `colabpad.ru`, `www.colabpad.ru` → VPS IP.

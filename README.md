@@ -30,9 +30,9 @@ ColabPad — онлайн-холст для совместного рисова�
    │  REST: создать / загрузить холст
    │  WebSocket (Socket.IO): штрихи и «кто онлайн»
    ▼
-Nginx (на сервере, не в Docker) — HTTPS, редиректы доменов, проксирование WebSocket
+Nginx (на сервере) — HTTPS, редиректы доменов, проксирование WebSocket
    ▼
-FastAPI + python-socketio, Uvicorn, 1 процесс  (127.0.0.1:8000)
+FastAPI + python-socketio, Uvicorn, 1 процесс (Docker или systemd)
    ▼
 SQLite  (/var/lib/colabpad/colabpad.db)
 ```
@@ -61,7 +61,7 @@ SQLite  (/var/lib/colabpad/colabpad.db)
 | База | SQLite (стандартный модуль `sqlite3`, без ORM) |
 | Фронтенд | Vite, чистый JavaScript, HTML5 Canvas, socket.io-client |
 | Тесты | pytest |
-| Прод | VPS (Ubuntu), системный Nginx, systemd, сертификаты Let's Encrypt |
+| Прод | VPS (Ubuntu), системный Nginx, Docker Compose или systemd, сертификаты Let's Encrypt |
 
 ---
 
@@ -83,6 +83,19 @@ colabpad/
 ---
 
 ## Запуск локально
+
+Быстрый запуск через Docker:
+
+~~~bash
+docker compose up --build -d --wait
+~~~
+
+Открой http://127.0.0.1:8000. Интерфейс собирается внутри образа, база хранится
+в отдельном томе. Остановка — docker compose down; том с рисунками сохраняется.
+Настройки, обновление, резервные копии и перенос существующей базы описаны
+в [docs/DOCKER.md](docs/DOCKER.md).
+
+### Запуск без Docker
 
 Нужны Python 3.12 и Node.js 20+.
 
@@ -131,7 +144,9 @@ npm run dev
 
 ## Деплой (вариант по умолчанию)
 
-Если не решишь иначе, деплоим так: **VPS, Nginx установлен прямо в систему (не Docker), приложение — сервис systemd**.
+Для Docker используется compose.yaml; внешний Nginx и сертификаты настраиваются
+по [инструкции Docker](docs/DOCKER.md). Ниже описан альтернативный вариант:
+**VPS, Nginx в системе, приложение как сервис systemd**.
 
 - Основной домен — **collabpad.ru**.
 - **colabpad.ru** (с одной «l», «опечатка»), а также `www.` у обоих доменов → постоянный редирект (301) на `https://collabpad.ru`.

@@ -1,0 +1,47 @@
+name: colabpad
+
+services:
+  app:
+    build: .
+    image: colabpad:local
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${COLABPAD_PORT:-8000}:8000"
+    environment:
+      DB_PATH: /var/lib/colabpad/colabpad.db
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}"
+      FORWARDED_ALLOW_IPS: "${COLABPAD_FORWARDED_ALLOW_IPS:-127.0.0.1}"
+      CANVAS_WIDTH: "${CANVAS_WIDTH:-1600}"
+      CANVAS_HEIGHT: "${CANVAS_HEIGHT:-1000}"
+      MAX_STROKES_PER_CANVAS: "${MAX_STROKES_PER_CANVAS:-5000}"
+      MAX_POINTS_PER_STROKE: "${MAX_POINTS_PER_STROKE:-2000}"
+      MAX_PAYLOAD_BYTES: "${MAX_PAYLOAD_BYTES:-65536}"
+      MAX_CLIENTS_PER_CANVAS: "${MAX_CLIENTS_PER_CANVAS:-20}"
+      STROKE_RATE_LIMIT: "${STROKE_RATE_LIMIT:-30/10}"
+      CANVAS_CREATE_LIMIT: "${CANVAS_CREATE_LIMIT:-10/60}"
+      BRUSH_WIDTH_MIN: "${BRUSH_WIDTH_MIN:-1}"
+      BRUSH_WIDTH_MAX: "${BRUSH_WIDTH_MAX:-40}"
+      SIMPLIFY_EPSILON: "${SIMPLIFY_EPSILON:-0.5}"
+      NAME_MAX_LEN: "${NAME_MAX_LEN:-30}"
+      PALETTE: "${PALETTE:-#000000,#FFFFFF,#E53935,#FB8C00,#FDD835,#43A047,#1E88E5,#8E24AA}"
+    volumes:
+      - data:/var/lib/colabpad
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    deploy:
+      replicas: 1
+    logging:
+      driver: local
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+volumes:
+  data:

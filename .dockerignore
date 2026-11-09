@@ -1,0 +1,17 @@
+# Allow only build inputs; local databases, credentials and Git stay on the host.
+**
+!Dockerfile
+!.dockerignore
+!requirements.txt
+!app/
+!app/**
+!web/
+!web/**
+!deploy/
+!deploy/backup.py
+**/__pycache__/
+**/*.pyc
+**/.env
+**/.env.*
+web/node_modules/
+app/static/
