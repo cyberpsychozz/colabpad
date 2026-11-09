@@ -348,7 +348,8 @@ FastAPI must serve `app/static` and fall back to `index.html` for `/` and `/c/{i
 
 ## 10. Production deploy (bare VPS alternative, system Nginx)
 
-- **Primary domain:** `collabpad.ru`. **Typo domain:** `colabpad.ru` → `301` to `https://collabpad.ru$request_uri`. `www.` variants of both also redirect to `https://collabpad.ru`.
+- **Primary domain:** `collabpad.ru`. **Typo domain:** `colabpad.ru` → `301` to `https://collabpad.ru$request_uri` with `utm_medium=typo_colabpad` appended to the query (see `deploy/nginx/collabpad.conf`, which is the source of truth over the snippet below). `www.` variants of both also redirect to `https://collabpad.ru`.
+- **Analytics:** Umami (`stat.gehrman.me`) is loaded in `web/index.html`. Custom events go through `web/src/analytics.js` `track()`; only product-level events (create, first stroke, share, timelapse, PNG, fake doors, limits, errors). Never send names, canvas ids or stroke data.
 - DNS: A (and AAAA if available) records for `collabpad.ru`, `www.collabpad.ru`, `colabpad.ru`, `www.colabpad.ru` → VPS IP.
 - Layout: code in `/opt/collabpad` owned by system user `collabpad`; venv in `/opt/collabpad/.venv`; DB in `/var/lib/collabpad/`; env file `/etc/collabpad/collabpad.env`.
 - App listens on `127.0.0.1:8000` only.

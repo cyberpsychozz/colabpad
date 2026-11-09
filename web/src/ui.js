@@ -1,4 +1,5 @@
 import { countMetric } from './api.js';
+import { track } from './analytics.js';
 
 export const $ = (selector, root = document) => root.querySelector(selector);
 
@@ -36,11 +37,13 @@ export async function askName(maxLength) {
   return new Promise(resolve => modal.addEventListener('close', () => {
     const name = modal.returnValue === 'save' ? $('input', modal).value.trim().slice(0, maxLength) : '';
     storage.set('collabpad-name', name);
+    track('name-prompt', { choice: name ? 'name' : 'skip' });
     resolve(name || null);
   }, { once: true }));
 }
 
-export async function copyLink() {
+export async function copyLink(from) {
+  track('link-copy', { from });
   try {
     await navigator.clipboard.writeText(location.href);
     toast('Ссылка скопирована', 2000);
@@ -53,6 +56,7 @@ export async function copyLink() {
 }
 
 export async function fakeDoor(key) {
+  track(key);
   try {
     await countMetric(key);
     const modal = dialog('<span class="eyebrow">В ПЛАНАХ</span><h2>Скоро!</h2><p>Мы проверяем, нужно ли это</p><button class="button primary">Понятно</button>', 'Скоро');
@@ -60,7 +64,8 @@ export async function fakeDoor(key) {
   } catch { toast('Не удалось отправить отклик. Попробуй ещё раз.'); }
 }
 
-export async function downloadPNG(source, id, width, height, background) {
+export async function downloadPNG(source, id, width, height, background, from) {
+  track('png-download', { from });
   const output = document.createElement('canvas');
   output.width = width; output.height = height;
   const ctx = output.getContext('2d');

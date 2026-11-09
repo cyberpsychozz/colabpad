@@ -4,16 +4,18 @@ import { CanvasSync } from './socket.js';
 import { configureCanvas, fillBackground, pointerPoint, preparePoints, renderStroke, splitStroke } from './draw.js';
 import { openTimelapse } from './timelapse.js';
 import { $, askName, copyLink, downloadPNG, fakeDoor, storage, toast } from './ui.js';
+import { track } from './analytics.js';
 
 const root = $('#app');
 const brand = '<a class="brand" href="/" aria-label="CollabPad — главная"><span class="brand-symbol">✳</span>collab<span>pad</span><i>●</i></a>';
 let cleanup = () => {};
 
-async function newCanvas(button) {
+async function newCanvas(button, from) {
   const original = button.textContent;
   button.disabled = true; button.textContent = 'Создаём…';
   try {
     const canvas = await createCanvas();
+    track('canvas-create', { from });
     location.assign(canvas.url);
   } catch (error) {
     toast(error.message || 'Не удалось создать холст. Попробуй ещё раз.');
@@ -23,7 +25,7 @@ async function newCanvas(button) {
 
 function home() {
   root.innerHTML = `<div class="home"><header class="site-header">${brand}<span class="header-note">МЕСТО ДЛЯ СОВМЕСТНОГО ТВОРЧЕСТВА</span><a class="text-link" href="#how">Как это работает ↙</a></header><main><div class="hero"><div class="hero-copy"><span class="eyebrow"><span class="status-dot green"></span> БЕЗ РЕГИСТРАЦИИ. С ДРУЗЬЯМИ.</span><h1>Рисуй вместе.<br><span class="ink-underline">Без отмены.</span></h1><p class="hero-description">Один холст, одна ссылка и сколько угодно идей.<br>Каждый штрих остаётся — как на бумаге.</p><button id="create" class="button primary large">Создать холст <span>↗</span></button><p class="small-note">Бесплатно. Пустой холст уже ждёт.</p></div><div class="hero-art" aria-label="Пример совместного рисунка"><span class="paper-label">ЧТО ПОЛУЧИТСЯ — РЕШАТЬ ВАМ</span><svg viewBox="0 0 620 450" role="img" aria-label="Солнце, цветок и свободные линии на бумаге"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M45 320 C130 220 100 390 195 300 S240 250 270 325" stroke="#2268df" stroke-width="12"/><path d="M408 275 Q420 320 400 388 M407 344 Q369 308 355 331 Q361 358 406 363 M408 334 Q450 302 459 325 Q451 347 407 352" stroke="#329856" stroke-width="7"/><path d="M407 265 C348 285 353 235 378 231 C330 207 373 166 395 199 C393 144 447 155 434 203 C477 171 497 221 450 236 C495 259 448 294 429 260 C437 300 394 308 407 265Z" stroke="#f07195" stroke-width="9"/><circle cx="416" cy="231" r="20" fill="#ffdc55" stroke="#292b28" stroke-width="4"/><circle cx="169" cy="130" r="42" fill="#ffdc55" stroke="#292b28" stroke-width="5"/><path d="M166 64 L165 44 M166 196 L166 216 M103 129 L82 128 M233 130 L253 131 M121 82 L107 66 M218 85 L233 67 M120 176 L104 193 M216 177 L233 193" stroke="#292b28" stroke-width="5"/><path d="M152 132 Q169 154 187 131" stroke="#292b28" stroke-width="4"/><path d="M360 95 Q454 45 525 102 M503 80 L526 102 L496 109" stroke="#ef673c" stroke-width="5"/><path d="M51 395 Q170 420 297 387" stroke="#292b28" stroke-width="3"/></g></svg><span class="drawing-label label-blue">Саша рисует</span><span class="drawing-label label-pink">Маша тоже</span><span class="paper-caption">Немного хаоса. Много вашего.</span><span class="art-sticker">Каждый штрих<br>навсегда ♡</span></div></div><section id="how" class="how"><div class="how-title"><span class="eyebrow">ПРОЩЕ ЧИСТОГО ЛИСТА</span><h2>Просто начни.</h2></div><div class="step"><span>01 /</span><h3>Открой холст</h3><p>Одно нажатие — и он твой.<br>Никаких форм и паролей.</p></div><div class="step"><span>02 /</span><h3>Позови друзей</h3><p>Отправь ссылку. Рисуйте<br>рядом, даже если вы далеко.</p></div><div class="step"><span>03 /</span><h3>Оставь след</h3><p>Здесь нет отмены. Зато есть<br>история, таймлапс и PNG.</p></div></section><div class="future"><span>А что, если рисовать всем миром?</span><button id="buy" class="text-link">Купить штрих на большом холсте ↗</button></div></main><footer><span>collabpad © 2026</span><span>Меньше сомнений. Больше линий.</span><span>Сделано для совместного творчества ↗</span></footer></div>`;
-  $('#create').onclick = e => newCanvas(e.currentTarget);
+  $('#create').onclick = e => newCanvas(e.currentTarget, 'home');
   $('#buy').onclick = () => fakeDoor('stroke-buy-click');
 }
 
@@ -34,7 +36,7 @@ function errorScreen(message, retry = false) {
     const button = document.createElement('button'); button.className = 'button quiet'; button.textContent = 'Попробовать снова'; button.onclick = route;
     $('main').append(button);
   }
-  $('main .primary').onclick = e => newCanvas(e.currentTarget);
+  $('main .primary').onclick = e => newCanvas(e.currentTarget, 'error-page');
 }
 
 async function canvasPage(id) {
@@ -43,15 +45,17 @@ async function canvasPage(id) {
   $('.canvas-id').textContent = `/ ${id}`;
   const slow = setTimeout(() => { const p = $('.loading-paper p'); if (alive && p) p.textContent = 'Сервер отвечает медленно, подожди немного'; }, 5000);
   cleanup = () => { alive = false; clearTimeout(slow); };
-  $('.copy').onclick = copyLink;
+  $('.copy').onclick = () => copyLink('loading');
   let config;
   try { config = await getCanvas(id); }
   catch (error) {
     clearTimeout(slow);
     if (!alive) return;
-    errorScreen(['CANVAS_NOT_FOUND', 'INVALID_ID'].includes(error.code)
+    const missing = ['CANVAS_NOT_FOUND', 'INVALID_ID'].includes(error.code);
+    track('canvas-error', { reason: missing ? 'not-found' : 'network' });
+    errorScreen(missing
       ? 'Такого холста нет. Проверь ссылку или создай новый.'
-      : 'Не удалось связаться с сервером. Проверь соединение и попробуй ещё раз.', !['CANVAS_NOT_FOUND', 'INVALID_ID'].includes(error.code));
+      : 'Не удалось связаться с сервером. Проверь соединение и попробуй ещё раз.', !missing);
     return;
   }
   clearTimeout(slow);
@@ -68,7 +72,7 @@ async function canvasPage(id) {
   $('.canvas-frame').style.aspectRatio = `${config.width}/${config.height}`;
   let color = config.palette[0], width = Math.max(config.brushWidthMin, Math.min(6, config.brushWidthMax));
   let active = null, pointerId = null, readOnly = config.strokeCount >= config.maxStrokes, roomFull = false;
-  let count = config.strokeCount, sync;
+  let count = config.strokeCount, sync, drewHere = false, fullTracked = false;
   const widthInput = $('#brush-width');
   widthInput.min = config.brushWidthMin; widthInput.max = config.brushWidthMax; widthInput.value = width;
   const colors = $('.palette');
@@ -105,6 +109,7 @@ async function canvasPage(id) {
   }
 
   function full() {
+    if (!fullTracked) { fullTracked = true; track('limit-hit', { type: 'canvas-full' }); }
     readOnly = true;
     $('.banner').hidden = false;
     $('.banner').textContent = `Холст заполнен — здесь уже ${config.maxStrokes.toLocaleString('ru-RU')} штрихов. Можно посмотреть таймлапс или скачать PNG.`;
@@ -115,9 +120,10 @@ async function canvasPage(id) {
   performance.mark('collabpad-canvas-rendered');
   canvas.dataset.renderMs = performance.now().toFixed(1);
   widthInput.oninput = () => { width = Number(widthInput.value); updateTools(); };
-  $('.copy').onclick = $('.empty-copy').onclick = copyLink;
+  $('.copy').onclick = () => copyLink('header');
+  $('.empty-copy').onclick = () => copyLink('empty-hint');
   $('.pro-button').onclick = () => fakeDoor('pro-click');
-  $('.png-button').onclick = () => downloadPNG(canvas, id, config.width, config.height, config.background);
+  $('.png-button').onclick = () => downloadPNG(canvas, id, config.width, config.height, config.background, 'canvas');
   $('.replay-button').onclick = () => openTimelapse(config, sync?.confirmed() || config.strokes, canvas);
   const name = await askName(config.nameMaxLen);
   if (!alive) return;
@@ -145,6 +151,7 @@ async function canvasPage(id) {
     onFull: full,
     onError(code) {
       if (code === 'ROOM_FULL') {
+        track('limit-hit', { type: 'room-full' });
         roomFull = readOnly = true;
         $('.banner').hidden = false;
         $('.banner').textContent = 'На холсте сейчас слишком много людей. Обнови страницу позже.';
@@ -187,6 +194,7 @@ async function canvasPage(id) {
     if (stroke.points.length >= 2) {
       const chunks = splitStroke({ ...stroke, canvasId: id }, config.maxPointsPerStroke, config.maxPayloadBytes);
       for (const chunk of chunks) sync.enqueue({ ...chunk, clientId: crypto.randomUUID() });
+      if (!drewHere) { drewHere = true; track('first-stroke', { canvasWasEmpty: count === 0 }); }
     }
     render();
   }

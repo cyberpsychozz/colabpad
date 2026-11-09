@@ -1,8 +1,10 @@
 import { configureCanvas, fillBackground, renderStroke } from './draw.js';
 import { $, dialog, downloadPNG } from './ui.js';
+import { track } from './analytics.js';
 
 export function openTimelapse(config, confirmed, mainCanvas) {
   const strokes = [...confirmed].sort((a, b) => a.seq - b.seq);
+  track('timelapse-open', { strokes: strokes.length });
   const modal = dialog(`<div class="replay-head"><div><span class="eyebrow">КАЖДЫЙ ШТРИХ — ЧАСТЬ ИСТОРИИ</span><h2>Как это было</h2></div><button class="icon-button" aria-label="Закрыть таймлапс">×</button></div><div class="replay-paper"><canvas aria-label="Таймлапс холста"></canvas><p class="replay-empty">Пока нечего показывать — нарисуй первый штрих</p></div><div class="replay-controls"><button class="button primary play">Пауза</button><select aria-label="Скорость воспроизведения"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option></select><input type="range" min="0" value="0" step="1" aria-label="Номер штриха"><output></output><button class="button quiet png">Скачать PNG ↓</button></div>`, 'Таймлапс');
   modal.classList.add('replay');
   const canvas = $('canvas', modal);
@@ -48,6 +50,6 @@ export function openTimelapse(config, confirmed, mainCanvas) {
   slider.oninput = () => { playing = false; seek(Number(slider.value)); };
   $('select', modal).onchange = e => { speed = Number(e.target.value); };
   $('.icon-button', modal).onclick = () => modal.close();
-  $('.png', modal).onclick = () => downloadPNG(mainCanvas, config.id, config.width, config.height, config.background);
+  $('.png', modal).onclick = () => downloadPNG(mainCanvas, config.id, config.width, config.height, config.background, 'timelapse');
   modal.addEventListener('close', () => cancelAnimationFrame(frame), { once: true });
 }
