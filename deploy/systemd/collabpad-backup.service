@@ -1,0 +1,12 @@
+[Unit]
+Description=Online backup of CollabPad SQLite
+
+[Service]
+Type=oneshot
+User=collabpad
+Group=collabpad
+ExecStart=/opt/collabpad/.venv/bin/python /opt/collabpad/deploy/backup.py
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/collabpad/backups
+UMask=0077

@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     port: int = Field(8000, ge=1, le=65535)
-    db_path: str = "./data/colabpad.db"
+    db_path: str = "./data/collabpad.db"
     cors_origins: str = "http://localhost:5173"
     canvas_width: int = Field(1600, gt=0)
     canvas_height: int = Field(1000, gt=0)

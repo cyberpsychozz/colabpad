@@ -1,1 +1,1 @@
-"""ColabPad: permanent ink, shared by link."""
+"""CollabPad: permanent ink, shared by link."""

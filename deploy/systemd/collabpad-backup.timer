@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily ColabPad backup
+Description=Daily CollabPad backup
 
 [Timer]
 OnCalendar=*-*-* 03:00:00

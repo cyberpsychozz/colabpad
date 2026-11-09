@@ -109,7 +109,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             connection.close()
 
     application = FastAPI(
-        title="ColabPad API",
+        title="CollabPad API",
         version="1.0.0",
         lifespan=lifespan,
         responses={400: {"model": ErrorOut}, 404: {"model": ErrorOut}},

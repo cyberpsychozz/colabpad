@@ -1,8 +1,8 @@
-# ColabPad
+# CollabPad
 
 **Рисуй вместе. Без отмены.**
 
-ColabPad — онлайн-холст для совместного рисования в браузере, где **нет кнопки Undo и ластика**. Каждый штрих остаётся навсегда, как на бумаге. Создаёшь холст одной кнопкой, получаешь ссылку, кидаешь друзьям — и все рисуют одновременно. Без регистрации.
+CollabPad — онлайн-холст для совместного рисования в браузере, где **нет кнопки Undo и ластика**. Каждый штрих остаётся навсегда, как на бумаге. Создаёшь холст одной кнопкой, получаешь ссылку, кидаешь друзьям — и все рисуют одновременно. Без регистрации.
 
 Целевой публичный адрес из ТЗ: **https://collabpad.ru** (для `colabpad.ru` подготовлено перенаправление). В рамках локальной реализации сервер в интернете не публиковался. После локального запуска приложение открывается по адресу **http://127.0.0.1:8000/**.
 
@@ -18,12 +18,12 @@ ColabPad — онлайн-холст для совместного рисова�
 
 **Чего в MVP нет и не будет:** аккаунтов, разных типов доступа к холсту, ссылок только для просмотра, модерации, ластика, слоёв, режима с отменой (исключён окончательно), реальной оплаты, мобильного приложения.
 
-Полное ТЗ с обоснованиями: [`docs/ColabPad_Архитектура_и_ТЗ.docx`](docs/ColabPad_Архитектура_и_ТЗ.docx).
+Полное ТЗ с обоснованиями: [`docs/CollabPad_Архитектура_и_ТЗ.docx`](docs/CollabPad_Архитектура_и_ТЗ.docx).
 Инструкции для ИИ-агента (на английском, самые свежие и подробные): [`AGENTS.md`](AGENTS.md).
 
 Пользовательская инструкция по предоставленному шаблону, с пошаговыми скриншотами:
-[PDF](docs/user-guide/ColabPad_Инструкция_пользователя.pdf) ·
-[редактируемый DOCX](docs/user-guide/ColabPad_Инструкция_пользователя.docx).
+[PDF](docs/user-guide/CollabPad_Инструкция_пользователя.pdf) ·
+[редактируемый DOCX](docs/user-guide/CollabPad_Инструкция_пользователя.docx).
 
 ---
 
@@ -38,7 +38,7 @@ Nginx (на сервере) — HTTPS, редиректы доменов, про
    ▼
 FastAPI + python-socketio, Uvicorn, 1 процесс (Docker или systemd)
    ▼
-SQLite  (/var/lib/colabpad/colabpad.db)
+SQLite  (/var/lib/collabpad/collabpad.db)
 ```
 
 Как идёт штрих:
@@ -72,7 +72,7 @@ SQLite  (/var/lib/colabpad/colabpad.db)
 ## Структура проекта
 
 ```
-colabpad/
+collabpad/
   app/            # сервер: main.py, realtime.py, repo.py, models.py, config.py, schema.sql
     static/       # собранный фронтенд (не коммитим)
   web/            # исходники фронтенда (Vite)
@@ -129,11 +129,11 @@ npm run dev
 
 ## Настройки
 
-Все параметры задаются переменными окружения (локально — файл `.env`, на сервере — `/etc/colabpad/colabpad.env`). Пример — в `deploy/colabpad.env.example`.
+Все параметры задаются переменными окружения (локально — файл `.env`, на сервере — `/etc/collabpad/collabpad.env`). Пример — в `deploy/collabpad.env.example`.
 
 | Переменная | По умолчанию | Что это |
 |---|---|---|
-| `DB_PATH` | `./data/colabpad.db` | Путь к базе. На сервере: `/var/lib/colabpad/colabpad.db` |
+| `DB_PATH` | `./data/collabpad.db` | Путь к базе. На сервере: `/var/lib/collabpad/collabpad.db` |
 | `CORS_ORIGINS` | `http://localhost:5173` | На сервере: `https://collabpad.ru` |
 | `CANVAS_WIDTH` × `CANVAS_HEIGHT` | 1600 × 1000 | Размер холста |
 | `MAX_STROKES_PER_CANVAS` | 5000 | После этого холст становится только для просмотра |
@@ -162,20 +162,20 @@ npm run dev
 2. **Пакеты.** `sudo apt install python3.12 python3.12-venv nginx certbot sqlite3 git` + Node.js 20 (для сборки фронтенда).
 3. **Пользователь и папки.**
    ```bash
-   sudo useradd --system --create-home --home-dir /opt/colabpad colabpad
-   sudo mkdir -p /var/lib/colabpad/backups /etc/colabpad
-   sudo chown -R colabpad:colabpad /var/lib/colabpad
+   sudo useradd --system --create-home --home-dir /opt/collabpad collabpad
+   sudo mkdir -p /var/lib/collabpad/backups /etc/collabpad
+   sudo chown -R collabpad:collabpad /var/lib/collabpad
    ```
-4. **Код.** Склонировать репозиторий в `/opt/colabpad`, создать venv, `pip install -r requirements.txt`, собрать фронтенд.
-5. **Настройки.** Скопировать `deploy/colabpad.env.example` в `/etc/colabpad/colabpad.env`, поправить `DB_PATH` и `CORS_ORIGINS`.
-6. **Сервис.** `deploy/systemd/colabpad.service` → `/etc/systemd/system/`, затем `sudo systemctl enable --now colabpad`.
+4. **Код.** Склонировать репозиторий в `/opt/collabpad`, создать venv, `pip install -r requirements.txt`, собрать фронтенд.
+5. **Настройки.** Скопировать `deploy/collabpad.env.example` в `/etc/collabpad/collabpad.env`, поправить `DB_PATH` и `CORS_ORIGINS`.
+6. **Сервис.** `deploy/systemd/collabpad.service` → `/etc/systemd/system/collabpad.service`, затем `sudo systemctl enable --now collabpad`.
 7. **Nginx и сертификат.** Сначала включить в Nginx только блок для порта 80 и получить один сертификат на все четыре имени:
    ```bash
    sudo mkdir -p /var/www/certbot
    sudo certbot certonly --webroot -w /var/www/certbot \
      -d collabpad.ru -d www.collabpad.ru -d colabpad.ru -d www.colabpad.ru
    ```
-   Потом подключить полный `deploy/nginx/colabpad.conf`, проверить и перезагрузить: `sudo nginx -t && sudo systemctl reload nginx`.
+   Потом подключить полный `deploy/nginx/collabpad.conf`, проверить и перезагрузить: `sudo nginx -t && sudo systemctl reload nginx`.
 8. **Проверка.** `https://collabpad.ru/api/health` отвечает `{"ok":true}`, а `http://colabpad.ru` перекидывает на `https://collabpad.ru`.
 
 Готовые конфиги Nginx и systemd — в `AGENTS.md`, раздел 10 (и в папке `deploy/`).
@@ -183,14 +183,14 @@ npm run dev
 ### Обновление
 
 ```bash
-sudo /opt/colabpad/deploy/update.sh
+sudo /opt/collabpad/deploy/update.sh
 ```
 
 Скрипт подтягивает код, ставит зависимости, собирает фронтенд и перезапускает сервис. Пользователи переподключатся сами, и ничего не потеряется.
 
 ### Резервные копии
 
-Раз в сутки по cron: `sqlite3 ... ".backup ..."` в `/var/lib/colabpad/backups/`, храним последние 14 копий. Файл базы нельзя копировать обычным `cp`, пока приложение работает.
+Раз в сутки по cron: `sqlite3 ... ".backup ..."` в `/var/lib/collabpad/backups/`, храним последние 14 копий. Файл базы нельзя копировать обычным `cp`, пока приложение работает.
 
 ---
 

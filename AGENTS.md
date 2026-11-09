@@ -1,8 +1,8 @@
-# AGENTS.md — ColabPad
+# AGENTS.md — CollabPad
 
 Instructions for coding agents working on this repository. Read this file fully before writing code.
 The human-facing overview is `README.md` (Russian). The full architecture and spec is
-`docs/ColabPad_Архитектура_и_ТЗ.docx` (Russian). If this file and the docx disagree, **this file wins**
+`docs/CollabPad_Архитектура_и_ТЗ.docx` (Russian). If this file and the docx disagree, **this file wins**
 (it is newer), and flag the conflict to the human.
 
 **User-approved update (2026-11-09):** Docker packaging is now in scope.
@@ -14,7 +14,7 @@ one app container with one Uvicorn worker and persist SQLite in its named volume
 
 ## 1. What we are building
 
-ColabPad is a browser drawing canvas with **no undo and no eraser**. Every stroke is permanent, like ink on paper.
+CollabPad is a browser drawing canvas with **no undo and no eraser**. Every stroke is permanent, like ink on paper.
 Anyone with a canvas link can draw on it together in real time. No accounts, no sign-up.
 
 MVP = exactly three features:
@@ -79,7 +79,7 @@ httpx>=0.27
 ## 5. Repository layout
 
 ```
-colabpad/
+collabpad/
   app/
     __init__.py
     main.py         # FastAPI app, REST routes, error handlers, static + SPA fallback, builds `asgi`
@@ -104,12 +104,12 @@ colabpad/
       styles.css
   tests/
   deploy/
-    nginx/colabpad.conf
-    systemd/colabpad.service
-    colabpad.env.example
+    nginx/collabpad.conf
+    systemd/collabpad.service
+    collabpad.env.example
     update.sh
   docs/
-    ColabPad_Архитектура_и_ТЗ.docx
+    CollabPad_Архитектура_и_ТЗ.docx
   requirements.txt
   README.md
   AGENTS.md
@@ -262,7 +262,7 @@ Keep `lastSeq` = max seq seen. During a session local strokes may sit above or b
 
 **Timelapse.** Separate overlay canvas. Replay confirmed strokes by seq, whole strokes (no intra-stroke animation). At 1×: 40 ms per stroke, but total ≤ 60 s (shrink per-stroke time if needed). Controls: play/pause, 1×/2×/5×, scrubber by stroke index, PNG, close. Empty canvas → "Пока нечего показывать — нарисуй первый штрих", play disabled.
 
-**PNG.** `canvas.toBlob("image/png")` of the main canvas at logical 1600×1000 with white background, filename `colabpad-{id}.png`.
+**PNG.** `canvas.toBlob("image/png")` of the main canvas at logical 1600×1000 with white background, filename `collabpad-{id}.png`.
 
 **Name.** On first visit to any canvas: modal "Как тебя подписать?" with skip. Store in `localStorage` (wrap in try/catch).
 
@@ -293,7 +293,7 @@ Warn on `beforeunload` if the outbox is non-empty.
 
 ```
 PORT=8000
-DB_PATH=./data/colabpad.db          # prod: /var/lib/colabpad/colabpad.db
+DB_PATH=./data/collabpad.db          # prod: /var/lib/collabpad/collabpad.db
 CORS_ORIGINS=http://localhost:5173  # prod: https://collabpad.ru
 CANVAS_WIDTH=1600
 CANVAS_HEIGHT=1000
@@ -350,38 +350,38 @@ FastAPI must serve `app/static` and fall back to `index.html` for `/` and `/c/{i
 
 - **Primary domain:** `collabpad.ru`. **Typo domain:** `colabpad.ru` → `301` to `https://collabpad.ru$request_uri`. `www.` variants of both also redirect to `https://collabpad.ru`.
 - DNS: A (and AAAA if available) records for `collabpad.ru`, `www.collabpad.ru`, `colabpad.ru`, `www.colabpad.ru` → VPS IP.
-- Layout: code in `/opt/colabpad` owned by system user `colabpad`; venv in `/opt/colabpad/.venv`; DB in `/var/lib/colabpad/`; env file `/etc/colabpad/colabpad.env`.
+- Layout: code in `/opt/collabpad` owned by system user `collabpad`; venv in `/opt/collabpad/.venv`; DB in `/var/lib/collabpad/`; env file `/etc/collabpad/collabpad.env`.
 - App listens on `127.0.0.1:8000` only.
 
-### `deploy/systemd/colabpad.service`
+### `deploy/systemd/collabpad.service`
 
 ```ini
 [Unit]
-Description=ColabPad (FastAPI + Socket.IO)
+Description=CollabPad (FastAPI + Socket.IO)
 After=network.target
 
 [Service]
-User=colabpad
-Group=colabpad
-WorkingDirectory=/opt/colabpad
-EnvironmentFile=/etc/colabpad/colabpad.env
-ExecStart=/opt/colabpad/.venv/bin/uvicorn app.main:asgi --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1
+User=collabpad
+Group=collabpad
+WorkingDirectory=/opt/collabpad
+EnvironmentFile=/etc/collabpad/collabpad.env
+ExecStart=/opt/collabpad/.venv/bin/uvicorn app.main:asgi --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=always
 RestartSec=2
 NoNewPrivileges=true
 ProtectSystem=full
-ReadWritePaths=/var/lib/colabpad
+ReadWritePaths=/var/lib/collabpad
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-### `deploy/nginx/colabpad.conf` (→ `/etc/nginx/sites-available/`, symlink into `sites-enabled/`)
+### `deploy/nginx/collabpad.conf` (→ `/etc/nginx/sites-available/`, symlink into `sites-enabled/`)
 
 ```nginx
 map $http_upgrade $connection_upgrade { default upgrade; '' close; }
 
-upstream colabpad_app { server 127.0.0.1:8000; }
+upstream collabpad_app { server 127.0.0.1:8000; }
 
 # HTTP: ACME challenge + redirect everything to the primary HTTPS domain
 server {
@@ -419,7 +419,7 @@ server {
     client_max_body_size 1m;
 
     location /socket.io/ {
-        proxy_pass http://colabpad_app;
+        proxy_pass http://collabpad_app;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
@@ -431,7 +431,7 @@ server {
     }
 
     location / {
-        proxy_pass http://colabpad_app;
+        proxy_pass http://collabpad_app;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -457,17 +457,17 @@ Renewal: certbot's systemd timer; add `--deploy-hook "systemctl reload nginx"` (
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-cd /opt/colabpad
-sudo -u colabpad git pull --ff-only
-sudo -u colabpad .venv/bin/pip install -r requirements.txt
-(cd web && sudo -u colabpad npm ci && sudo -u colabpad npm run build)
-sudo systemctl restart colabpad      # clients auto-reconnect and resync
+cd /opt/collabpad
+sudo -u collabpad git pull --ff-only
+sudo -u collabpad .venv/bin/pip install -r requirements.txt
+(cd web && sudo -u collabpad npm ci && sudo -u collabpad npm run build)
+sudo systemctl restart collabpad      # clients auto-reconnect and resync
 curl -fsS https://collabpad.ru/api/health
 ```
 
 ### Backups (recommended, cheap)
 
-Daily cron as `colabpad`: `sqlite3 /var/lib/colabpad/colabpad.db ".backup '/var/lib/colabpad/backups/colabpad-$(date +\%F).db'"` and keep the last 14 files. Never copy the live `.db` file with `cp` while the app runs (WAL).
+Daily cron as `collabpad`: `sqlite3 /var/lib/collabpad/collabpad.db ".backup '/var/lib/collabpad/backups/collabpad-$(date +\%F).db'"` and keep the last 14 files. Never copy the live `.db` file with `cp` while the app runs (WAL).
 
 ---
 

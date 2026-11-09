@@ -18,19 +18,19 @@ FROM python:3.12-slim-bookworm AS runtime
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DB_PATH=/var/lib/colabpad/colabpad.db \
+    DB_PATH=/var/lib/collabpad/collabpad.db \
     CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000 \
     FORWARDED_ALLOW_IPS=127.0.0.1
 
-RUN groupadd --system --gid 10001 colabpad \
-    && useradd --system --uid 10001 --gid colabpad --no-create-home colabpad \
-    && mkdir -p /srv/colabpad /var/lib/colabpad \
-    && chown colabpad:colabpad /srv/colabpad /var/lib/colabpad
-WORKDIR /srv/colabpad
+RUN groupadd --system --gid 10001 collabpad \
+    && useradd --system --uid 10001 --gid collabpad --no-create-home collabpad \
+    && mkdir -p /srv/collabpad /var/lib/collabpad \
+    && chown collabpad:collabpad /srv/collabpad /var/lib/collabpad
+WORKDIR /srv/collabpad
 COPY --from=python-dependencies /opt/venv /opt/venv
-COPY --chown=colabpad:colabpad app/ ./app/
-COPY --chown=colabpad:colabpad deploy/backup.py ./deploy/backup.py
-COPY --from=frontend --chown=colabpad:colabpad /build/app/static/ ./app/static/
+COPY --chown=collabpad:collabpad app/ ./app/
+COPY --chown=collabpad:collabpad deploy/backup.py ./deploy/backup.py
+COPY --from=frontend --chown=collabpad:collabpad /build/app/static/ ./app/static/
 
 USER 10001:10001
 EXPOSE 8000

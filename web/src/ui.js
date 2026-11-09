@@ -29,13 +29,13 @@ export function dialog(markup, label) {
 }
 
 export async function askName(maxLength) {
-  const previous = storage.get('colabpad-name');
+  const previous = storage.get('collabpad-name');
   if (previous !== null) return previous || null;
   const modal = dialog(`<form method="dialog"><span class="eyebrow">ДАВАЙ ЗНАКОМИТЬСЯ</span><h2>Как тебя подписать?</h2><p>Имя увидят друзья на холсте. Можно остаться гостем.</p><label for="display-name">Твоё имя</label><input id="display-name" autocomplete="nickname" placeholder="Например, Саша" autofocus><div class="dialog-actions"><button value="skip" class="button quiet">Пропустить</button><button value="save" class="button primary">Рисовать ↗</button></div></form>`, 'Как тебя подписать?');
   $('input', modal).maxLength = maxLength;
   return new Promise(resolve => modal.addEventListener('close', () => {
     const name = modal.returnValue === 'save' ? $('input', modal).value.trim().slice(0, maxLength) : '';
-    storage.set('colabpad-name', name);
+    storage.set('collabpad-name', name);
     resolve(name || null);
   }, { once: true }));
 }
@@ -71,7 +71,7 @@ export async function downloadPNG(source, id, width, height, background) {
   if (!blob) { toast('Не удалось сохранить картинку'); return; }
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.href = url; link.download = `colabpad-${id}.png`;
+  link.href = url; link.download = `collabpad-${id}.png`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   toast('Картинка сохранена');

@@ -6,7 +6,7 @@ import { openTimelapse } from './timelapse.js';
 import { $, askName, copyLink, downloadPNG, fakeDoor, storage, toast } from './ui.js';
 
 const root = $('#app');
-const brand = '<a class="brand" href="/" aria-label="ColabPad — главная"><span class="brand-symbol">✳</span>colab<span>pad</span><i>●</i></a>';
+const brand = '<a class="brand" href="/" aria-label="CollabPad — главная"><span class="brand-symbol">✳</span>collab<span>pad</span><i>●</i></a>';
 let cleanup = () => {};
 
 async function newCanvas(button) {
@@ -22,7 +22,7 @@ async function newCanvas(button) {
 }
 
 function home() {
-  root.innerHTML = `<div class="home"><header class="site-header">${brand}<span class="header-note">МЕСТО ДЛЯ СОВМЕСТНОГО ТВОРЧЕСТВА</span><a class="text-link" href="#how">Как это работает ↙</a></header><main><div class="hero"><div class="hero-copy"><span class="eyebrow"><span class="status-dot green"></span> БЕЗ РЕГИСТРАЦИИ. С ДРУЗЬЯМИ.</span><h1>Рисуй вместе.<br><span class="ink-underline">Без отмены.</span></h1><p class="hero-description">Один холст, одна ссылка и сколько угодно идей.<br>Каждый штрих остаётся — как на бумаге.</p><button id="create" class="button primary large">Создать холст <span>↗</span></button><p class="small-note">Бесплатно. Пустой холст уже ждёт.</p></div><div class="hero-art" aria-label="Пример совместного рисунка"><span class="paper-label">ЧТО ПОЛУЧИТСЯ — РЕШАТЬ ВАМ</span><svg viewBox="0 0 620 450" role="img" aria-label="Солнце, цветок и свободные линии на бумаге"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M45 320 C130 220 100 390 195 300 S240 250 270 325" stroke="#2268df" stroke-width="12"/><path d="M408 275 Q420 320 400 388 M407 344 Q369 308 355 331 Q361 358 406 363 M408 334 Q450 302 459 325 Q451 347 407 352" stroke="#329856" stroke-width="7"/><path d="M407 265 C348 285 353 235 378 231 C330 207 373 166 395 199 C393 144 447 155 434 203 C477 171 497 221 450 236 C495 259 448 294 429 260 C437 300 394 308 407 265Z" stroke="#f07195" stroke-width="9"/><circle cx="416" cy="231" r="20" fill="#ffdc55" stroke="#292b28" stroke-width="4"/><circle cx="169" cy="130" r="42" fill="#ffdc55" stroke="#292b28" stroke-width="5"/><path d="M166 64 L165 44 M166 196 L166 216 M103 129 L82 128 M233 130 L253 131 M121 82 L107 66 M218 85 L233 67 M120 176 L104 193 M216 177 L233 193" stroke="#292b28" stroke-width="5"/><path d="M152 132 Q169 154 187 131" stroke="#292b28" stroke-width="4"/><path d="M360 95 Q454 45 525 102 M503 80 L526 102 L496 109" stroke="#ef673c" stroke-width="5"/><path d="M51 395 Q170 420 297 387" stroke="#292b28" stroke-width="3"/></g></svg><span class="drawing-label label-blue">Саша рисует</span><span class="drawing-label label-pink">Маша тоже</span><span class="paper-caption">Немного хаоса. Много вашего.</span><span class="art-sticker">Каждый штрих<br>навсегда ♡</span></div></div><section id="how" class="how"><div class="how-title"><span class="eyebrow">ПРОЩЕ ЧИСТОГО ЛИСТА</span><h2>Просто начни.</h2></div><div class="step"><span>01 /</span><h3>Открой холст</h3><p>Одно нажатие — и он твой.<br>Никаких форм и паролей.</p></div><div class="step"><span>02 /</span><h3>Позови друзей</h3><p>Отправь ссылку. Рисуйте<br>рядом, даже если вы далеко.</p></div><div class="step"><span>03 /</span><h3>Оставь след</h3><p>Здесь нет отмены. Зато есть<br>история, таймлапс и PNG.</p></div></section><div class="future"><span>А что, если рисовать всем миром?</span><button id="buy" class="text-link">Купить штрих на большом холсте ↗</button></div></main><footer><span>colabpad © 2026</span><span>Меньше сомнений. Больше линий.</span><span>Сделано для совместного творчества ↗</span></footer></div>`;
+  root.innerHTML = `<div class="home"><header class="site-header">${brand}<span class="header-note">МЕСТО ДЛЯ СОВМЕСТНОГО ТВОРЧЕСТВА</span><a class="text-link" href="#how">Как это работает ↙</a></header><main><div class="hero"><div class="hero-copy"><span class="eyebrow"><span class="status-dot green"></span> БЕЗ РЕГИСТРАЦИИ. С ДРУЗЬЯМИ.</span><h1>Рисуй вместе.<br><span class="ink-underline">Без отмены.</span></h1><p class="hero-description">Один холст, одна ссылка и сколько угодно идей.<br>Каждый штрих остаётся — как на бумаге.</p><button id="create" class="button primary large">Создать холст <span>↗</span></button><p class="small-note">Бесплатно. Пустой холст уже ждёт.</p></div><div class="hero-art" aria-label="Пример совместного рисунка"><span class="paper-label">ЧТО ПОЛУЧИТСЯ — РЕШАТЬ ВАМ</span><svg viewBox="0 0 620 450" role="img" aria-label="Солнце, цветок и свободные линии на бумаге"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M45 320 C130 220 100 390 195 300 S240 250 270 325" stroke="#2268df" stroke-width="12"/><path d="M408 275 Q420 320 400 388 M407 344 Q369 308 355 331 Q361 358 406 363 M408 334 Q450 302 459 325 Q451 347 407 352" stroke="#329856" stroke-width="7"/><path d="M407 265 C348 285 353 235 378 231 C330 207 373 166 395 199 C393 144 447 155 434 203 C477 171 497 221 450 236 C495 259 448 294 429 260 C437 300 394 308 407 265Z" stroke="#f07195" stroke-width="9"/><circle cx="416" cy="231" r="20" fill="#ffdc55" stroke="#292b28" stroke-width="4"/><circle cx="169" cy="130" r="42" fill="#ffdc55" stroke="#292b28" stroke-width="5"/><path d="M166 64 L165 44 M166 196 L166 216 M103 129 L82 128 M233 130 L253 131 M121 82 L107 66 M218 85 L233 67 M120 176 L104 193 M216 177 L233 193" stroke="#292b28" stroke-width="5"/><path d="M152 132 Q169 154 187 131" stroke="#292b28" stroke-width="4"/><path d="M360 95 Q454 45 525 102 M503 80 L526 102 L496 109" stroke="#ef673c" stroke-width="5"/><path d="M51 395 Q170 420 297 387" stroke="#292b28" stroke-width="3"/></g></svg><span class="drawing-label label-blue">Саша рисует</span><span class="drawing-label label-pink">Маша тоже</span><span class="paper-caption">Немного хаоса. Много вашего.</span><span class="art-sticker">Каждый штрих<br>навсегда ♡</span></div></div><section id="how" class="how"><div class="how-title"><span class="eyebrow">ПРОЩЕ ЧИСТОГО ЛИСТА</span><h2>Просто начни.</h2></div><div class="step"><span>01 /</span><h3>Открой холст</h3><p>Одно нажатие — и он твой.<br>Никаких форм и паролей.</p></div><div class="step"><span>02 /</span><h3>Позови друзей</h3><p>Отправь ссылку. Рисуйте<br>рядом, даже если вы далеко.</p></div><div class="step"><span>03 /</span><h3>Оставь след</h3><p>Здесь нет отмены. Зато есть<br>история, таймлапс и PNG.</p></div></section><div class="future"><span>А что, если рисовать всем миром?</span><button id="buy" class="text-link">Купить штрих на большом холсте ↗</button></div></main><footer><span>collabpad © 2026</span><span>Меньше сомнений. Больше линий.</span><span>Сделано для совместного творчества ↗</span></footer></div>`;
   $('#create').onclick = e => newCanvas(e.currentTarget);
   $('#buy').onclick = () => fakeDoor('stroke-buy-click');
 }
@@ -112,7 +112,7 @@ async function canvasPage(id) {
   }
 
   reset(config.strokes); updateTools();
-  performance.mark('colabpad-canvas-rendered');
+  performance.mark('collabpad-canvas-rendered');
   canvas.dataset.renderMs = performance.now().toFixed(1);
   widthInput.oninput = () => { width = Number(widthInput.value); updateTools(); };
   $('.copy').onclick = $('.empty-copy').onclick = copyLink;
@@ -121,9 +121,9 @@ async function canvasPage(id) {
   $('.replay-button').onclick = () => openTimelapse(config, sync?.confirmed() || config.strokes, canvas);
   const name = await askName(config.nameMaxLen);
   if (!alive) return;
-  if (!storage.get('colabpad-hint')) {
+  if (!storage.get('collabpad-hint')) {
     toast('Здесь нет отмены. Каждый штрих — навсегда.', 5000);
-    storage.set('colabpad-hint', '1');
+    storage.set('collabpad-hint', '1');
   }
 
   sync = new CanvasSync({

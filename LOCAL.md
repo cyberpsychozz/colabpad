@@ -1,4 +1,4 @@
-# Локальный ColabPad
+# Локальный CollabPad
 
 Это готовая локальная реализация MVP из AGENTS.md. ТЗ сохранено, README и AGENTS.md дополнены инструкциями Docker по новому запросу владельца. Для быстрого запуска используй этот файл.
 
@@ -24,7 +24,7 @@ docker compose up --build -d --wait
 
 Открой http://127.0.0.1:8000. Остановка — Ctrl+C. Документация API: http://127.0.0.1:8000/docs.
 
-Скрипт слушает только локальный адрес. База находится в data/colabpad.db и переживает перезапуск и пересборку. Удалять её нельзя, если нужны рисунки.
+Скрипт слушает только локальный адрес. База находится в data/collabpad.db и переживает перезапуск и пересборку. Удалять её нельзя, если нужны рисунки.
 
 ## Установка с чистого клона
 
@@ -82,14 +82,14 @@ npm run build
 В deploy/ находятся Nginx, первоначальная HTTP-конфигурация для certbot, systemd, таймер ежедневной онлайн-копии SQLite с хранением 14 копий, скрипт обновления и хук продления сертификата. Порядок установки — в исходном README.md. После установки сервиса бэкап включается так:
 
 ~~~bash
-sudo install -m 644 deploy/systemd/colabpad-backup.service /etc/systemd/system/
-sudo install -m 644 deploy/systemd/colabpad-backup.timer /etc/systemd/system/
+sudo install -m 644 deploy/systemd/collabpad-backup.service /etc/systemd/system/
+sudo install -m 644 deploy/systemd/collabpad-backup.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now colabpad-backup.timer
-sudo install -m 755 deploy/renew-hook.sh /etc/letsencrypt/renewal-hooks/deploy/colabpad
+sudo systemctl enable --now collabpad-backup.timer
+sudo install -m 755 deploy/renew-hook.sh /etc/letsencrypt/renewal-hooks/deploy/collabpad
 ~~~
 
-Создай /var/lib/colabpad/backups с владельцем colabpad. Копирование живого файла базы через cp не применяется: deploy/backup.py использует SQLite Backup API и проверяет целостность результата.
+Создай /var/lib/collabpad/backups с владельцем collabpad. Копирование живого файла базы через cp не применяется: deploy/backup.py использует SQLite Backup API и проверяет целостность результата.
 
 Логи HTTP-доступа и Nginx с адресами посетителей отключены согласно требованию не сохранять IP. Для ошибок приложения остаются сообщения с traceback без содержимого штрихов и запросов. В Uvicorn всегда один worker.
 

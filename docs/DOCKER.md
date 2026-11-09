@@ -1,4 +1,4 @@
-# ColabPad в Docker
+# CollabPad в Docker
 
 Docker добавлен по запросу владельца 9 ноября 2026 года. Один контейнер приложения
 содержит Python-сервер и собранный интерфейс. SQLite хранится в отдельном именованном
@@ -26,7 +26,7 @@ docker compose restart app
 docker compose down
 ~~~
 
-Эти операции сохраняют том colabpad_data. Переименование проекта Compose создаёт
+Эти операции сохраняют том collabpad_data. Переименование проекта Compose создаёт
 другой том. Существующая база из локальной папки data/ автоматически не переносится;
 инструкция переноса приведена ниже.
 
@@ -34,7 +34,7 @@ docker compose down
 другой порт с соответствующим CORS_ORIGINS:
 
 ~~~bash
-COLABPAD_PORT=8080 CORS_ORIGINS=http://localhost:8080,http://127.0.0.1:8080 docker compose up --build -d --wait
+COLLABPAD_PORT=8080 CORS_ORIGINS=http://localhost:8080,http://127.0.0.1:8080 docker compose up --build -d --wait
 ~~~
 
 Эти значения нужно использовать и в последующих командах Compose; для постоянной
@@ -49,7 +49,7 @@ Node.js и исходники фронтенда в итоговый образ 
 
 Compose берёт настройки приложения из переменных окружения или локального .env;
 допустимые значения соответствуют .env.example. Путь SQLite внутри контейнера
-фиксирован: /var/lib/colabpad/colabpad.db. COLABPAD_PORT задаёт порт компьютера,
+фиксирован: /var/lib/collabpad/collabpad.db. COLLABPAD_PORT задаёт порт компьютера,
 внутри контейнера всегда используется 8000.
 
 Процесс работает от пользователя с UID/GID 10001. Корневая файловая система
@@ -78,7 +78,7 @@ docker compose up --build -d --wait
 
 ~~~bash
 docker compose exec app python deploy/backup.py
-docker compose cp app:/var/lib/colabpad/backups ./backups
+docker compose cp app:/var/lib/collabpad/backups ./backups
 ~~~
 
 Утилита использует SQLite Backup API, проверяет целостность и хранит 14 последних
@@ -90,19 +90,19 @@ docker compose cp app:/var/lib/colabpad/backups ./backups
 1. Останови локальный сервер и Docker-приложение. Создай онлайн-копию исходной базы:
 
 ~~~bash
-python3 deploy/backup.py --db data/colabpad.db --directory backups
+python3 deploy/backup.py --db data/collabpad.db --directory backups
 ~~~
 
 2. Импортируй полученный файл в новый, ещё пустой том. Замени YYYY-MM-DD датой
 из имени файла, которое напечатала предыдущая команда:
 
 Если Docker-версия уже запускалась, используй отдельный проект для переноса:
-добавь -p colabpad-migrated сразу после docker compose во всех дальнейших
+добавь -p collabpad-migrated сразу после docker compose во всех дальнейших
 командах. Он получит новый том; последующие запуск, остановка и обновление
 должны использовать то же имя проекта.
 
 ~~~bash
-docker compose run --rm --no-deps -T app python -c 'import shutil,sys; from pathlib import Path; target=Path("/var/lib/colabpad/colabpad.db"); stream=target.open("xb"); shutil.copyfileobj(sys.stdin.buffer,stream); stream.close()' < backups/colabpad-YYYY-MM-DD.db
+docker compose run --rm --no-deps -T app python -c 'import shutil,sys; from pathlib import Path; target=Path("/var/lib/collabpad/collabpad.db"); stream=target.open("xb"); shutil.copyfileobj(sys.stdin.buffer,stream); stream.close()' < backups/collabpad-YYYY-MM-DD.db
 ~~~
 
 Команда создаёт файл от пользователя приложения и отказывается перезаписывать
@@ -123,7 +123,7 @@ docker compose up -d --wait
 CORS_ORIGINS=https://collabpad.ru
 ~~~
 
-Конфигурация deploy/nginx/colabpad.conf уже проксирует 127.0.0.1:8000,
+Конфигурация deploy/nginx/collabpad.conf уже проксирует 127.0.0.1:8000,
 включая Socket.IO. DNS и certbot настраиваются как в README.
 Запускай только Compose или systemd-приложение на этом порту.
 
@@ -132,9 +132,9 @@ CORS_ORIGINS=https://collabpad.ru
 из X-Forwarded-For, сначала узнай адрес шлюза:
 
 ~~~bash
-docker network inspect colabpad_default --format '{{(index .IPAM.Config 0).Gateway}}'
+docker network inspect collabpad_default --format '{{(index .IPAM.Config 0).Gateway}}'
 ~~~
 
-Укажи полученный адрес в COLABPAD_FORWARDED_ALLOW_IPS в .env и пересоздай приложение
+Укажи полученный адрес в COLLABPAD_FORWARDED_ALLOW_IPS в .env и пересоздай приложение
 командой обновления. Значение должно содержать адрес доверенного прокси.
 Публикация порта на 127.0.0.1 позволяет направлять внешний трафик через Nginx.
