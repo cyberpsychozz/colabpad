@@ -108,6 +108,14 @@ class StrokeIn(WireModel):
         return points
 
 
+class AliveIn(WireModel):
+    lasso: list[tuple[Number, Number]] = Field(max_length=2000)
+
+
+class ChoiceIn(WireModel):
+    type: str = Field(max_length=20)
+
+
 class StrokeOut(WireModel):
     seq: int
     color: str

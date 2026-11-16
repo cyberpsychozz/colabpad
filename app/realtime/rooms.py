@@ -9,6 +9,11 @@ def room(canvas_id: str, chunk: Chunk) -> str:
     return f"{canvas_id}:{chunk[0]}:{chunk[1]}"
 
 
+def session_room(session_id: str) -> str:
+    """Every socket of one session: events meant for an author only."""
+    return f"session:{session_id}"
+
+
 class Rooms:
     def __init__(self) -> None:
         self.viewports: dict[str, tuple[str, frozenset[Chunk]]] = {}

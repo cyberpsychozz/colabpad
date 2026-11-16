@@ -14,7 +14,8 @@ from app.errors import AppError, validation_error
 from app.i18n import pick_locale
 from app.models import StrokeIn, ViewportIn, chunk_of
 from app.realtime.ratelimit import SlidingWindow
-from app.realtime.rooms import Rooms, room
+from app.auth.sessions import session_id_from_cookie_header
+from app.realtime.rooms import Rooms, room, session_room
 from app.repo import Repository
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ class Realtime:
         self.viewport_limit = SlidingWindow(config.limits["viewport"]["rate"])
         self.write_lock = asyncio.Lock()
         self.locales: dict[str, str] = {}
+        self.sessions: dict[str, str] = {}
         self.sio.on("connect", self.connect)
         self.sio.on("viewport:set", self.viewport)
         self.sio.on("stroke:add", self.add)
@@ -55,6 +57,16 @@ class Realtime:
 
     async def connect(self, sid: str, environ: dict[str, Any]) -> None:
         self.locales[sid] = pick_locale(environ.get("HTTP_ACCEPT_LANGUAGE"))
+        session = self.get_repo().get_session(
+            session_id_from_cookie_header(environ.get("HTTP_COOKIE"))
+        )
+        if session:
+            self.sessions[sid] = session["id"]
+            await self.sio.enter_room(sid, session_room(session["id"]))
+
+    async def emit(self, event: str, data: dict[str, Any], rooms: list[str]) -> None:
+        if rooms:
+            await self.sio.emit(event, data, room=rooms)
 
     async def guarded(
         self, sid: str, what: str, handler: Callable[[], Any]
@@ -120,7 +132,9 @@ class Realtime:
             chunk = chunk_of(stroke.points, self.chunk_size, bounds)
             assert chunk is not None  # checked by StrokeIn
             async with self.write_lock:
-                saved, inserted = self.get_repo().insert_stroke(stroke, chunk)
+                saved, inserted = self.get_repo().insert_stroke(
+                    stroke, chunk, self.sessions.get(sid)
+                )
                 # The transaction has committed before any network await.
                 if inserted:
                     await self.sio.emit(
@@ -136,5 +150,6 @@ class Realtime:
     async def disconnect(self, sid: str, reason: str | None = None) -> None:
         self.rooms.drop(sid)
         self.locales.pop(sid, None)
+        self.sessions.pop(sid, None)
         self.stroke_limit.buckets.pop(sid, None)
         self.viewport_limit.buckets.pop(sid, None)

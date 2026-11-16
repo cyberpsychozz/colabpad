@@ -2,18 +2,24 @@
 
 import json
 import logging
+
+import httpx
 import re
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 import socketio
-from fastapi import FastAPI, Path, Query, Request
+from fastapi import Depends, FastAPI, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.alive.api import create_router
+from app.alive.queue import AliveService, Rig, plain_rig
+from app.alive.vlm import Budget, OpenRouterVlm, UnavailableVlm, Vlm, load_prompt
+from app.auth.sessions import ensure_session
 from app.config import GameConfig, Settings
 from app.db import connect
 from app.errors import AppError, validation_error
@@ -109,7 +115,10 @@ class PayloadLimit:
         await self.application(scope, receive, send)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, vlm: Vlm | None = None, rig: Rig = plain_rig
+) -> FastAPI:
+    """vlm and rig can be replaced by fakes in tests."""
     settings = settings or Settings()
 
     @asynccontextmanager
@@ -119,11 +128,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.repo = Repository(connection)
         world = config.limits["world"]
         application.state.repo.ensure_world(world["bounds_w"], world["bounds_h"])
+        http = httpx.AsyncClient()
+        application.state.alive = AliveService(
+            settings,
+            config,
+            lambda: application.state.repo,
+            application.state.realtime,
+            vlm or build_vlm(http),
+            rig,
+        )
+        application.state.alive.start()
         try:
             yield
         finally:
+            await application.state.alive.stop()
+            await http.aclose()
             await application.state.realtime.sio.shutdown()
             connection.close()
+
+    def build_vlm(http: httpx.AsyncClient) -> Vlm:
+        if not (config.flags.vlm.enabled and settings.vlm_api_key):
+            return UnavailableVlm()
+        repo = lambda: application.state.repo  # noqa: E731
+        budget = Budget(
+            config.vlm["daily_budget_usd"],
+            lambda key: repo().get_metric(key),
+            lambda key, amount: repo().add_metric(key, amount),
+        )
+        prompt = load_prompt(settings.config_dir.parent / "prompts" / "classify.md")
+        return OpenRouterVlm(http, config.vlm, settings.vlm_api_key, prompt, budget)
 
     application = FastAPI(
         title="CollabPad API",
@@ -151,6 +184,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["X-Frame-Options"] = "DENY"
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
+        elif request.url.path.startswith("/sprites/") and response.status_code == 200:
+            # Sprite files never change once written.
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
     @application.exception_handler(AppError)
@@ -179,7 +215,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"ok": True}
 
     @application.get("/api/canvases/{canvas_id}", response_model=CanvasOut)
-    async def get_canvas(canvas_id: str) -> dict[str, Any]:
+    async def get_canvas(
+        canvas_id: str, session: Annotated[dict[str, Any], Depends(ensure_session)]
+    ) -> dict[str, Any]:
         canvas = application.state.repo.get_canvas(check_id(canvas_id))
         return {
             "id": canvas["id"],
@@ -220,7 +258,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "strokes": repo.chunk_strokes(canvas_id, cx, cy, after_seq),
             "fates": repo.chunk_fates(canvas_id, cx, cy),
-            "entities": [],
+            "entities": repo.living_in_rect(
+                canvas_id, cx * size, cy * size, (cx + 1) * size, (cy + 1) * size
+            ),
             "last_seq": canvas["stroke_count"],
             "tick": 0,
         }
@@ -232,7 +272,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.repo.increment_metric(key)
         return Response(status_code=204)
 
+    application.include_router(create_router())
+
     # API routes precede static mounting and explicit SPA routes.
+    application.mount(
+        "/sprites", StaticFiles(directory=settings.sprites_dir, check_dir=False), name="sprites"
+    )
     assets = settings.static_dir / "assets"
     if assets.is_dir():
         application.mount("/assets", StaticFiles(directory=assets), name="assets")

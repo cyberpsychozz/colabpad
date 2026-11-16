@@ -18,7 +18,8 @@ stroke:
   rate: 30/10
 alive:
   quota_per_day: {anon: 10, free: 20, plus: 50}
-  quota_timezone: Europe/Moscow
+  # Quota days roll over at Moscow midnight (UTC+3, no daylight saving).
+  quota_utc_offset_hours: 3
   min_interval_s: 5
   lasso_points: {min: 3, max: 500}
   bbox_max: 1024
