@@ -21,6 +21,7 @@ from PIL import Image
 from app.alive.bake import save_sprite, single_frame_manifest
 from app.alive.postprocess import Classified, postprocess, size_class
 from app.alive.rasterize import Cutout, rasterize
+from app.alive.rig import area_polygon
 from app.alive.select import SelectionLocks, bbox, select_strokes
 from app.alive.vlm import TYPES, Vlm, VlmError
 from app.config import GameConfig, Settings
@@ -32,12 +33,15 @@ from app.repo.canvases import now_ms
 
 logger = logging.getLogger(__name__)
 
-Rig = Callable[[Cutout, Classified], tuple[Image.Image, dict[str, Any]]]
+# (sheet, manifest, sheet pixels per cutout pixel)
+Rig = Callable[[Cutout, Classified], tuple[Image.Image, dict[str, Any], float]]
 
 
-def plain_rig(cutout: Cutout, classified: Classified) -> tuple[Image.Image, dict[str, Any]]:
+def plain_rig(
+    cutout: Cutout, classified: Classified
+) -> tuple[Image.Image, dict[str, Any], float]:
     """No animation: the drawing itself is the only frame."""
-    return cutout.image, single_frame_manifest(cutout.image, classified.facing)
+    return cutout.image, single_frame_manifest(cutout.image, classified.facing), 1.0
 
 
 @dataclass
@@ -224,13 +228,18 @@ class AliveService:
         async with asyncio.timeout(hard):
             repo.update_job(job.id, status="rig", chosen_type=classified.type)
             await self.progress(job, "rig")
-            sheet, manifest = await asyncio.to_thread(self.rig, cutout, classified)
+            sheet, manifest, shrink = await asyncio.to_thread(self.rig, cutout, classified)
+            polygon = (
+                await asyncio.to_thread(area_polygon, cutout.image)
+                if classified.type == "water"
+                else None
+            )
             sprite_id = str(uuid4())
             paths = await asyncio.to_thread(
                 save_sprite, self.settings.sprites_dir, sprite_id, cutout.image, sheet
             )
             lap("rig")
-        entity = self.spawn(job, classified, cutout, sprite_id, paths, manifest)
+        entity = self.spawn(job, classified, cutout, sprite_id, paths, manifest, shrink, polygon)
         await self.realtime.emit(
             "stroke:fate", {"seqs": job.seqs, "fate": "consumed", "entityId": entity["id"]}, job.rooms
         )
@@ -318,6 +327,8 @@ class AliveService:
         sprite_id: str,
         paths: tuple[str, str],
         manifest: dict[str, Any],
+        shrink: float = 1.0,
+        polygon: list[list[float]] | None = None,
     ) -> dict[str, Any]:
         """One transaction: sprite, consumed fates, entity, job state and the quota."""
         repo = self.get_repo()
@@ -346,7 +357,13 @@ class AliveService:
                     "params": {
                         "w": round(width, 1),
                         "h": round(height, 1),
-                        "scale": cutout.scale,
+                        "scale": cutout.scale * shrink,
+                        # A drawn area (water) in world coordinates.
+                        "polygon": polygon
+                        and [
+                            [round(cutout.x + px / cutout.scale, 1), round(cutout.y + py / cutout.scale, 1)]
+                            for px, py in polygon
+                        ],
                         "sizeClass": classified.size_class,
                         "locomotion": classified.locomotion,
                         "diet": classified.diet,

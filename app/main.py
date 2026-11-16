@@ -17,7 +17,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.alive.api import create_router
-from app.alive.queue import AliveService, Rig, plain_rig
+from app.alive.queue import AliveService, Rig
+from app.alive.rig import rig_sprite
 from app.alive.vlm import Budget, OpenRouterVlm, UnavailableVlm, Vlm, load_prompt
 from app.auth.sessions import ensure_session
 from app.config import GameConfig, Settings
@@ -116,7 +117,7 @@ class PayloadLimit:
 
 
 def create_app(
-    settings: Settings | None = None, vlm: Vlm | None = None, rig: Rig = plain_rig
+    settings: Settings | None = None, vlm: Vlm | None = None, rig: Rig = rig_sprite
 ) -> FastAPI:
     """vlm and rig can be replaced by fakes in tests."""
     settings = settings or Settings()
