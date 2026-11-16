@@ -22,6 +22,11 @@ ENV PATH="/opt/venv/bin:$PATH" \
     CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000 \
     FORWARDED_ALLOW_IPS=127.0.0.1
 
+# Shared libraries that skia-python's wheel links against.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libfontconfig1 libgl1 libegl1 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system --gid 10001 collabpad \
     && useradd --system --uid 10001 --gid collabpad --no-create-home collabpad \
     && mkdir -p /srv/collabpad /var/lib/collabpad \
