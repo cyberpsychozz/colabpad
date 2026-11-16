@@ -51,7 +51,7 @@ export function splitStroke(stroke, maxPoints, maxBytes) {
     // Leave space for the Socket.IO packet, UUID and future framing overhead.
     while (new TextEncoder().encode(JSON.stringify(chunk)).length + 256 > maxBytes) {
       end = start + Math.floor((end - start) / 2);
-      if (end - start < 2) throw new Error('Лимит сообщения слишком мал для штриха');
+      if (end - start < 2) throw new Error('Payload limit is too small for a stroke');
       chunk = { ...stroke, points: stroke.points.slice(start, end) };
     }
     result.push(chunk);

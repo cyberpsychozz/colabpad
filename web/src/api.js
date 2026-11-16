@@ -1,6 +1,6 @@
 export class ApiError extends Error {
   constructor(error, status) {
-    super(error?.message || 'Сервер недоступен. Попробуй ещё раз.');
+    super(error?.message || 'Request failed');
     this.code = error?.code || 'INTERNAL';
     this.status = status;
   }
