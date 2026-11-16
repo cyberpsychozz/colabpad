@@ -15,7 +15,6 @@ export async function request(path, options = {}) {
   return response.status === 204 ? null : response.json();
 }
 
-export const createCanvas = () => request('/api/canvases', { method: 'POST' });
 export const getCanvas = id => request(`/api/canvases/${encodeURIComponent(id)}`);
 export const getStrokes = (id, afterSeq) => request(`/api/canvases/${encodeURIComponent(id)}/strokes?afterSeq=${afterSeq}`);
 export const countMetric = key => request(`/api/metrics/${key}`, { method: 'POST' });

@@ -15,7 +15,6 @@ def application(tmp_path: Path) -> FastAPI:
         Settings(
             _env_file=None,
             db_path=str(tmp_path / "db.sqlite"),
-            canvas_create_limit="100/60",
         )
     )
 

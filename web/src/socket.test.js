@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { CanvasSync } from './socket.js';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
-const savedStroke = seq => ({ seq, color: '#000000', width: 6, points: [[1, 1, 0.5], [2, 2, 0.5]], authorName: null, createdAt: 1 });
+const savedStroke = seq => ({ seq, color: '#000000', width: 6, points: [[1, 1, 0.5], [2, 2, 0.5]], createdAt: 1 });
 const local = clientId => ({ canvasId: '0123456789', clientId, color: '#000000', width: 6, points: [[1, 1, 0.5], [2, 2, 0.5]] });
 
 class Transport {
@@ -13,7 +13,7 @@ class Transport {
   disconnect() { this.connected = false; this.handlers.disconnect?.(); }
   timeout() { return this; }
   emit(event, data, ack) {
-    if (event === 'canvas:join') { ack(null, { ok: true, online: ['Гость'], lastSeq: 0 }); return; }
+    if (event === 'canvas:join') { ack(null, { ok: true, lastSeq: 0 }); return; }
     this.sent.push(data);
     const reply = this.reply(data);
     if (reply instanceof Error) ack(reply);
@@ -24,8 +24,8 @@ class Transport {
 function setup(options = {}) {
   const transport = new Transport(), errors = [], states = [], confirmed = [], sleeps = [];
   const sync = new CanvasSync({
-    canvas: { id: '0123456789', strokes: [], maxStrokes: 5000 }, name: null,
-    onStroke: stroke => confirmed.push(stroke), onReset() {}, onPresence() {}, onFull() {},
+    canvas: { id: '0123456789', strokes: [] },
+    onStroke: stroke => confirmed.push(stroke), onReset() {},
     onError: code => errors.push(code), onState: state => states.push(state),
     transport, fetchStrokes: async () => ({ strokes: [] }),
     sleep: async ms => { sleeps.push(ms); }, ...options,
@@ -76,19 +76,6 @@ test('reconnect fills sequence gaps below a previously seen max seq', async () =
   sync.start(); await tick();
   assert.equal(requested, 0);
   assert.deepEqual(sync.confirmed().map(s => s.seq), [1, 2]);
-  sync.stop();
-});
-
-test('full event before final ack preserves the accepted last stroke', async () => {
-  const { sync, transport } = setup();
-  transport.reply = () => {
-    transport.handlers['canvas:full']({ maxStrokes: 1 });
-    return { ok: true, seq: 1 };
-  };
-  sync.start(); await tick();
-  sync.enqueue(local('last')); await tick();
-  assert.equal(sync.outbox.length, 0);
-  assert.equal(sync.confirmed()[0].seq, 1);
   sync.stop();
 });
 

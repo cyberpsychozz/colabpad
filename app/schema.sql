@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS stroke (
     canvas_id TEXT NOT NULL REFERENCES canvas(id),
     seq INTEGER NOT NULL,
     client_id TEXT NOT NULL,
-    author_name TEXT,
     color TEXT NOT NULL,
     width REAL NOT NULL,
     points TEXT NOT NULL,

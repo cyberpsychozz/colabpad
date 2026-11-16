@@ -4,9 +4,9 @@ import { getStrokes } from './api.js';
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export class CanvasSync {
-  constructor({ canvas, name, onStroke, onReset, onState, onPresence, onFull, onError,
+  constructor({ canvas, onStroke, onReset, onState, onError,
     transport, fetchStrokes = getStrokes, sleep = wait }) {
-    Object.assign(this, { canvas, name, onStroke, onReset, onState, onPresence, onFull, onError, fetchStrokes, sleep });
+    Object.assign(this, { canvas, onStroke, onReset, onState, onError, fetchStrokes, sleep });
     this.socket = transport || io({ autoConnect: false });
     this.outbox = [];
     this.saved = new Map(canvas.strokes.map(stroke => [stroke.seq, stroke]));
@@ -19,8 +19,6 @@ export class CanvasSync {
     this.socket.on('disconnect', () => { this.epoch++; this.ready = false; this.state(); });
     this.socket.on('connect_error', () => { this.ready = false; this.state(); });
     this.socket.on('stroke:new', stroke => this.confirm(stroke));
-    this.socket.on('presence:update', ({ online }) => this.onPresence(online));
-    this.socket.on('canvas:full', data => this.onFull(data));
   }
 
   start() { this.socket.connect(); }
@@ -52,16 +50,14 @@ export class CanvasSync {
     this.state();
     for (let retry = 0; !this.stopped && this.socket.connected && epoch === this.epoch; retry++) {
       try {
-        const join = await this.ack('canvas:join', { canvasId: this.canvas.id, name: this.name });
+        const join = await this.ack('canvas:join', { canvasId: this.canvas.id });
         if (epoch !== this.epoch || this.stopped) return;
         if (!join.ok) {
-          if (join.error.code === 'ROOM_FULL') { this.onError('ROOM_FULL'); return; }
           if (join.error.code !== 'INTERNAL' && join.error.code !== 'RATE_LIMITED') {
             this.onError(join.error.code); return;
           }
           throw new Error(join.error.code);
         }
-        this.onPresence(join.online);
         // A live event may race the initial snapshot, leaving a gap below max seq.
         // Fetch from the contiguous prefix so an observed later seq cannot hide it.
         let contiguous = 0;
@@ -99,7 +95,7 @@ export class CanvasSync {
           const reply = await this.ack('stroke:add', stroke);
           if (this.stopped) return;
           if (reply.ok) {
-            this.confirm({ ...stroke, seq: reply.seq, authorName: this.name, createdAt: Date.now() });
+            this.confirm({ ...stroke, seq: reply.seq, createdAt: Date.now() });
             this.outbox.shift(); failures = 0; this.state();
             continue;
           }
@@ -108,12 +104,7 @@ export class CanvasSync {
           if (code === 'NOT_JOINED') { this.ready = false; this.resync(); break; }
           if (code === 'INTERNAL') throw new Error(code);
           this.outbox.shift();
-          if (code === 'CANVAS_FULL') {
-            // An in-flight final accepted stroke is confirmed before the next
-            // queued stroke is rejected, even if canvas:full arrived before its ack.
-            this.outbox.length = 0;
-            this.onFull({ maxStrokes: this.canvas.maxStrokes });
-          } else this.onError(code);
+          this.onError(code);
           this.state();
         } catch {
           if (!this.ready || !this.socket.connected || this.stopped) break;

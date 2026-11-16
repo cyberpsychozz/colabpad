@@ -10,18 +10,20 @@ import socketio
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import Settings
 from app.db import connect
 from app.errors import AppError, too_large, validation_error
-from app.models import CanvasCreated, CanvasOut, ErrorOut, StrokesOut, check_id
-from app.realtime import Realtime, SlidingWindow
+from app.models import CanvasOut, ErrorOut, StrokesOut, check_id
+from app.realtime.gateway import Realtime
 from app.repo import Repository
 
 logger = logging.getLogger(__name__)
+
+METRIC_KEYS = {"adblock_gate_shown", "adblock_gate_passed", "plus_clicked"}
 
 
 class PayloadLimit:
@@ -116,7 +118,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.state.settings = settings
     application.state.realtime = Realtime(settings, lambda: application.state.repo)
-    create_limit = SlidingWindow(settings.canvas_create_limit)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.origins,
@@ -157,37 +158,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def health() -> dict[str, bool]:
         return {"ok": True}
 
-    @application.post("/api/canvases", status_code=201, response_model=CanvasCreated)
-    async def create_canvas(request: Request) -> dict[str, Any]:
-        # Uvicorn trusts forwarding headers from loopback only. No IP persistence.
-        key = request.client.host if request.client else "local"
-        if not create_limit.consume(key):
-            raise AppError(
-                "RATE_LIMITED",
-                "Подожди немного перед созданием нового холста.",
-                http_status=429,
-            )
-        canvas = application.state.repo.create_canvas()
-        return {
-            "id": canvas["id"],
-            "url": f"/c/{canvas['id']}",
-            "width": canvas["width"],
-            "height": canvas["height"],
-        }
-
     @application.get("/api/canvases/{canvas_id}", response_model=CanvasOut)
     async def get_canvas(canvas_id: str) -> dict[str, Any]:
         canvas = application.state.repo.get_canvas(check_id(canvas_id))
         return {
             **canvas,
-            "max_strokes": settings.max_strokes_per_canvas,
             "palette": settings.colors,
             "brush_width_min": settings.brush_width_min,
             "brush_width_max": settings.brush_width_max,
             "max_points_per_stroke": settings.max_points_per_stroke,
             "max_payload_bytes": settings.max_payload_bytes,
             "simplify_epsilon": settings.simplify_epsilon,
-            "name_max_len": settings.name_max_len,
             "strokes": application.state.repo.list_strokes(canvas_id),
         }
 
@@ -200,7 +181,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.post("/api/metrics/{key}", status_code=204)
     async def metric(key: str) -> Response:
-        if key not in {"pro-click", "stroke-buy-click"}:
+        if key not in METRIC_KEYS:
             raise AppError("NOT_FOUND", "Такой метрики нет.", http_status=404)
         application.state.repo.increment_metric(key)
         return Response(status_code=204)
@@ -211,8 +192,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/assets", StaticFiles(directory=assets, check_dir=False), name="assets"
     )
 
-    @application.get("/", include_in_schema=False)
     @application.get("/c/{canvas_id}", include_in_schema=False)
+    async def legacy_canvas_link(canvas_id: str) -> Response:
+        return RedirectResponse("/w", status_code=302)
+
+    @application.get("/", include_in_schema=False)
+    @application.get("/w", include_in_schema=False)
     async def index() -> Response:
         path = settings.static_dir / "index.html"
         if not path.is_file():

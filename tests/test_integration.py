@@ -23,8 +23,11 @@ def ack(ws: Any, number: int, event: str, payload: dict[str, Any]) -> dict[str, 
             return json.loads(message[len(f"43{number}") :])[0]
 
 
-def test_fifty_rooms_and_ten_collaborators(client: TestClient) -> None:
-    ids = [client.post("/api/canvases").json()["id"] for _ in range(50)]
+def test_fifty_rooms_and_ten_collaborators(
+    client: TestClient, application: FastAPI
+) -> None:
+    repo = application.state.repo
+    ids = [repo.create_canvas()["id"] for _ in range(50)]
     with ExitStack() as stack:
         sockets = []
         for i in range(59):
@@ -41,7 +44,6 @@ def test_fifty_rooms_and_ten_collaborators(client: TestClient) -> None:
             joined = ack(ws, 1, "canvas:join", {"canvasId": canvas_id})
             assert joined["ok"]
             sockets.append(ws)
-        assert len(joined["online"]) == 10
         for i in [0, *range(50, 59)]:
             saved = ack(
                 sockets[i],
@@ -76,7 +78,7 @@ def test_five_thousand_stroke_load_and_online_backup(
                 "points": [[(i + j) % 1600, (i + j) % 1000, 0.5] for j in range(12)],
             }
         )
-        repo.insert_stroke(stroke, None)
+        repo.insert_stroke(stroke)
     started = time.perf_counter()
     data = client.get(f"/api/canvases/{canvas['id']}")
     elapsed = time.perf_counter() - started

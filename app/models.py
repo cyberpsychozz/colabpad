@@ -35,13 +35,6 @@ class WireModel(BaseModel):
 
 class JoinIn(WireModel):
     canvas_id: str = Field(pattern=CANVAS_ID)
-    name: str | None = None
-
-    @field_validator("name")
-    @classmethod
-    def trim_name(cls, value: str | None, info: ValidationInfo) -> str | None:
-        limit = (info.context or {}).get("settings", Settings()).name_max_len
-        return (value.strip()[:limit] or None) if value else None
 
 
 class StrokeIn(WireModel):
@@ -83,18 +76,10 @@ class StrokeIn(WireModel):
 
 class StrokeOut(WireModel):
     seq: int
-    author_name: str | None
     color: str
     width: float
     points: list[Point]
     created_at: int
-
-
-class CanvasCreated(WireModel):
-    id: str
-    url: str
-    width: int
-    height: int
 
 
 class CanvasOut(WireModel):
@@ -103,7 +88,6 @@ class CanvasOut(WireModel):
     height: int
     background: str
     stroke_count: int
-    max_strokes: int
     created_at: int
     palette: list[str]
     brush_width_min: float
@@ -111,7 +95,6 @@ class CanvasOut(WireModel):
     max_points_per_stroke: int
     max_payload_bytes: int
     simplify_epsilon: float
-    name_max_len: int
     strokes: list[StrokeOut]
 
 
