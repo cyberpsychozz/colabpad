@@ -129,7 +129,7 @@ npm run dev
 
 | Переменная | По умолчанию | Что это |
 |---|---|---|
-| `DB_PATH` | `./data/collabpad.db` | Путь к базе. На сервере: `/var/lib/collabpad/collabpad.db` |
+| `DATA_DIR` | `./data` | Папка данных: база `collabpad.db` и `sprites/`. На сервере: `/var/lib/collabpad` |
 | `CORS_ORIGINS` | `http://localhost:5173` | На сервере: `https://collabpad.ru` |
 | `CANVAS_WIDTH` × `CANVAS_HEIGHT` | 1600 × 1000 | Размер холста |
 | `STROKE_RATE_LIMIT` | 30/10 | Не больше 30 штрихов за 10 секунд с одного подключения |

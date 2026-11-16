@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from app.config import Settings
+from app.config import GameConfig, Settings
 from app.db import connect
 from app.errors import AppError, too_large, validation_error
 from app.models import CanvasOut, ErrorOut, StrokesOut, check_id
@@ -102,6 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
+        settings.sprites_dir.mkdir(parents=True, exist_ok=True)
         connection = connect(settings.db_path)
         application.state.repo = Repository(connection, settings)
         try:
@@ -117,6 +118,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         responses={400: {"model": ErrorOut}, 404: {"model": ErrorOut}},
     )
     application.state.settings = settings
+    application.state.config = GameConfig(settings.config_dir)
     application.state.realtime = Realtime(settings, lambda: application.state.repo)
     application.add_middleware(
         CORSMiddleware,
@@ -188,9 +190,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # API routes precede static mounting and explicit SPA routes.
     assets = settings.static_dir / "assets"
-    application.mount(
-        "/assets", StaticFiles(directory=assets, check_dir=False), name="assets"
-    )
+    if assets.is_dir():
+        application.mount("/assets", StaticFiles(directory=assets), name="assets")
 
     @application.get("/c/{canvas_id}", include_in_schema=False)
     async def legacy_canvas_link(canvas_id: str) -> Response:

@@ -85,7 +85,7 @@ def test_limits_and_config_reach_browser(tmp_path: Path) -> None:
     app = create_app(
         Settings(
             _env_file=None,
-            db_path=str(tmp_path / "db"),
+            data_dir=tmp_path,
             canvas_width=400,
             canvas_height=300,
             brush_width_min=2,

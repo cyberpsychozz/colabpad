@@ -14,7 +14,7 @@ def application(tmp_path: Path) -> FastAPI:
     return create_app(
         Settings(
             _env_file=None,
-            db_path=str(tmp_path / "db.sqlite"),
+            data_dir=tmp_path,
         )
     )
 

@@ -1,0 +1,77 @@
+# World balance defaults (AGENTS.md §3). Times in seconds, distances in px.
+tick_hz: 10
+decide_hz: 2
+day_night_cycle_s: 1200
+needs:
+  hunger_full_s: 600      # 0 -> 100
+  thirst_full_s: 420
+  energy_empty_s: 900     # 100 -> 0
+  starve_damage_per_s: 2
+  seek_food_above: 50
+  seek_water_above: 50
+  rest_below: 20
+speed:
+  S: 60
+  M: 45
+  L: 30
+  fly_mult: 1.3
+  hunt_mult: 1.2
+  water_walk_mult: 0.5
+size_class_px: {S: 96, M: 256}   # bbox long side: < 96 S, < 256 M, else L
+nutrition:
+  apple: 30
+  meat: 50
+  cooked_mult: 1.5
+  bites: 3
+flee_radius: 150
+reproduction:
+  hunger_below: 40
+  thirst_below: 40
+  energy_above: 50
+  distance: 60
+  cooldown_s: 180
+  baby_scale: 0.6
+  grow_s: 300
+  shelter_chance_mult: 2
+aquatic:
+  dry_damage_per_s: 10
+person:
+  warrior_radius: 200
+  fisherman_catch_s: 15
+  fisherman_wild_s: 60
+  medic_heal_per_s: 5
+  medic_radius: 30
+plant:
+  fruit_period_s: [60, 90]
+  fruit_cap: 3
+  pasture_max: 100
+  pasture_bite: 20
+  pasture_regrow_per_s: 1
+  wet_growth_mult: [1.5, 2.0]
+  sway_pct: 4
+water:
+  douse_radius: 40
+explosive:
+  fuse_s: 20
+  radius_mult: 1.5
+  radius_min: 80
+  radius_max: 200
+  damage_center: 100
+  damage_edge: 30
+vehicle:
+  speed: 120
+  hit_speed: 60
+  hit_damage: 20
+fire:
+  spread_period_s: 3
+  spread_chance: 0.3
+  spread_radius: 40
+  burn_s: 20
+  damage_per_s: 10
+  damage_radius: 20
+sky:
+  rain_s: 30
+  rain_period_s: 120
+  sun_radius: 400
+  sun_growth_mult: 1.5
+sleep_catchup_max_s: 600

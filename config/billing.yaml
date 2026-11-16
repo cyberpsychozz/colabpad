@@ -1,0 +1,7 @@
+# ЮKassa, test mode only. Prices are always in rubles (kopecks here).
+currency: RUB
+plans:
+  plus_month: {amount_kop: 29900, period_days: 30}
+  plus_year: {amount_kop: 249000, period_days: 365}
+past_due_grace_days: 3
+renewal_hour_msk: 3

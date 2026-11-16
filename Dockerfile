@@ -18,7 +18,7 @@ FROM python:3.12-slim-bookworm AS runtime
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DB_PATH=/var/lib/collabpad/collabpad.db \
+    DATA_DIR=/var/lib/collabpad \
     CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000 \
     FORWARDED_ALLOW_IPS=127.0.0.1
 
@@ -29,6 +29,7 @@ RUN groupadd --system --gid 10001 collabpad \
 WORKDIR /srv/collabpad
 COPY --from=python-dependencies /opt/venv /opt/venv
 COPY --chown=collabpad:collabpad app/ ./app/
+COPY --chown=collabpad:collabpad config/ ./config/
 COPY --chown=collabpad:collabpad deploy/backup.py ./deploy/backup.py
 COPY --from=frontend --chown=collabpad:collabpad /build/app/static/ ./app/static/
 

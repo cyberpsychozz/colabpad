@@ -86,7 +86,7 @@ def test_immutable_deduplicated_and_transactional(
 
 
 def test_database_survives_restart(tmp_path: Path) -> None:
-    settings = Settings(_env_file=None, db_path=str(tmp_path / "persistent" / "db"))
+    settings = Settings(_env_file=None, data_dir=tmp_path / "persistent")
     first = create_app(settings)
     with TestClient(create_asgi(first)):
         canvas = first.state.repo.create_canvas()

@@ -5,6 +5,8 @@
 !requirements.txt
 !app/
 !app/**
+!config/
+!config/**
 !web/
 !web/**
 !deploy/

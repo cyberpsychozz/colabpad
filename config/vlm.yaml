@@ -1,0 +1,10 @@
+# VLM adapter settings. Keys come from env (VLM_API_KEY), never from this file.
+# Model IDs are placeholders until T6 checks the current ones.
+base_url: https://openrouter.ai/api/v1
+primary_model: google/gemini-flash-latest
+fallback_model: qwen/qwen-vl-plus
+temperature: 0
+max_tokens: 700
+timeout_s: 10
+retries: 1
+daily_budget_usd: 5
