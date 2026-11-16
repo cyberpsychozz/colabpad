@@ -16,7 +16,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import GameConfig, Settings
 from app.db import connect
-from app.errors import AppError, too_large, validation_error
+from app.errors import AppError, validation_error
+from app.i18n import pick_locale, translate
 from app.models import CanvasOut, ChunkOut, ErrorOut, check_id
 from app.realtime.gateway import Realtime
 from app.repo import Repository
@@ -24,6 +25,15 @@ from app.repo import Repository
 logger = logging.getLogger(__name__)
 
 METRIC_KEYS = {"adblock_gate_shown", "adblock_gate_passed", "plus_clicked"}
+
+
+def scope_locale(scope: Scope) -> str:
+    headers = dict(scope.get("headers") or ())
+    return pick_locale(headers.get(b"accept-language", b"").decode("latin-1"))
+
+
+def request_locale(request: Request) -> str:
+    return pick_locale(request.headers.get("accept-language"))
 
 
 class PayloadLimit:
@@ -46,9 +56,10 @@ class PayloadLimit:
                     return
                 body.extend(message.get("body", b""))
                 if len(body) > self.limit:
-                    await JSONResponse(too_large().body(), status_code=413)(
-                        scope, receive, send
-                    )
+                    await JSONResponse(
+                        AppError("PAYLOAD_TOO_LARGE").body(scope_locale(scope)),
+                        status_code=413,
+                    )(scope, receive, send)
                     return
                 if not message.get("more_body", False):
                     break
@@ -84,7 +95,8 @@ class PayloadLimit:
                         return message
                     ack = re.match(r"^42(\d+)\[", packet or "")
                     if ack:
-                        error = json.dumps([too_large().body()], ensure_ascii=False)
+                        body = AppError("PAYLOAD_TOO_LARGE").body(scope_locale(scope))
+                        error = json.dumps([body], ensure_ascii=False)
                         await send(
                             {"type": "websocket.send", "text": f"43{ack[1]}{error}"}
                         )
@@ -143,13 +155,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.exception_handler(AppError)
     async def app_error(request: Request, exc: AppError) -> JSONResponse:
-        return JSONResponse(exc.body(), status_code=exc.http_status)
+        return JSONResponse(exc.body(request_locale(request)), status_code=exc.http_status)
 
     @application.exception_handler(RequestValidationError)
     async def request_error(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
-        return JSONResponse(validation_error(exc).body(), status_code=400)
+        return JSONResponse(
+            validation_error(exc).body(request_locale(request)), status_code=400
+        )
 
     @application.exception_handler(Exception)
     async def internal_error(request: Request, exc: Exception) -> JSONResponse:
@@ -157,7 +171,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "Unhandled application error", exc_info=(type(exc), exc, exc.__traceback__)
         )
         return JSONResponse(
-            AppError("INTERNAL", "Ошибка сервера.").body(), status_code=500
+            AppError("INTERNAL").body(request_locale(request)), status_code=500
         )
 
     @application.get("/api/health")
@@ -201,7 +215,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         canvas = repo.get_canvas(check_id(canvas_id))
         size = config.limits["world"]["chunk_size"]
         if cx * size >= canvas["bounds_w"] or cy * size >= canvas["bounds_h"]:
-            raise AppError("NOT_FOUND", "Такого участка нет.", http_status=404)
+            raise AppError("NOT_FOUND")
         # No await between these reads: lastSeq is a consistent watermark.
         return {
             "strokes": repo.chunk_strokes(canvas_id, cx, cy, after_seq),
@@ -214,7 +228,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @application.post("/api/metrics/{key}", status_code=204)
     async def metric(key: str) -> Response:
         if key not in METRIC_KEYS:
-            raise AppError("NOT_FOUND", "Такой метрики нет.", http_status=404)
+            raise AppError("NOT_FOUND")
         application.state.repo.increment_metric(key)
         return Response(status_code=204)
 
@@ -229,11 +243,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.get("/", include_in_schema=False)
     @application.get("/w", include_in_schema=False)
-    async def index() -> Response:
+    async def index(request: Request) -> Response:
         path = settings.static_dir / "index.html"
         if not path.is_file():
             return Response(
-                "Фронтенд ещё не собран. Выполни npm run build в папке web.",
+                translate(request_locale(request), "page.frontend_missing"),
                 status_code=503,
             )
         return FileResponse(path, headers={"Cache-Control": "no-cache"})

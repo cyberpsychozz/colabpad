@@ -10,7 +10,8 @@ import socketio
 from pydantic import ValidationError
 
 from app.config import GameConfig, Settings
-from app.errors import AppError, too_large, validation_error
+from app.errors import AppError, validation_error
+from app.i18n import pick_locale
 from app.models import StrokeIn, ViewportIn, chunk_of
 from app.realtime.ratelimit import SlidingWindow
 from app.realtime.rooms import Rooms, room
@@ -39,6 +40,8 @@ class Realtime:
         self.stroke_limit = SlidingWindow(config.limits["stroke"]["rate"])
         self.viewport_limit = SlidingWindow(config.limits["viewport"]["rate"])
         self.write_lock = asyncio.Lock()
+        self.locales: dict[str, str] = {}
+        self.sio.on("connect", self.connect)
         self.sio.on("viewport:set", self.viewport)
         self.sio.on("stroke:add", self.add)
         self.sio.on("disconnect", self.disconnect)
@@ -48,24 +51,30 @@ class Realtime:
             len(json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode())
             > self.settings.max_payload_bytes
         ):
-            raise too_large()
+            raise AppError("PAYLOAD_TOO_LARGE")
 
-    async def guarded(self, what: str, handler: Callable[[], Any]) -> dict[str, Any]:
+    async def connect(self, sid: str, environ: dict[str, Any]) -> None:
+        self.locales[sid] = pick_locale(environ.get("HTTP_ACCEPT_LANGUAGE"))
+
+    async def guarded(
+        self, sid: str, what: str, handler: Callable[[], Any]
+    ) -> dict[str, Any]:
+        locale = self.locales.get(sid, "en")
         try:
             return await handler()
         except ValidationError as exc:
-            return validation_error(exc).body()
+            return validation_error(exc).body(locale)
         except AppError as exc:
-            return exc.body()
+            return exc.body(locale)
         except Exception:
             logger.exception("%s failed", what)
-            return AppError("INTERNAL", "Ошибка сервера.", http_status=500).body()
+            return AppError("INTERNAL").body(locale)
 
     async def viewport(self, sid: str, data: Any) -> dict[str, Any]:
         async def handle() -> dict[str, Any]:
             self.check_size(data)
             if not self.viewport_limit.consume(sid):
-                raise AppError("RATE_LIMITED", "Подожди немного.", http_status=429)
+                raise AppError("RATE_LIMITED")
             payload = ViewportIn.model_validate(
                 data, context={"max_chunks": self.max_chunks}
             )
@@ -84,7 +93,7 @@ class Realtime:
                 await self.sio.enter_room(sid, name)
             return {"ok": True, "lastSeq": canvas["stroke_count"]}
 
-        return await self.guarded("Viewport update", handle)
+        return await self.guarded(sid, "Viewport update", handle)
 
     async def add(self, sid: str, data: Any) -> dict[str, Any]:
         async def handle() -> dict[str, Any]:
@@ -95,13 +104,9 @@ class Realtime:
                 or not isinstance(data, dict)
                 or data.get("canvasId") != canvas_id
             ):
-                raise AppError("NOT_JOINED", "Сначала подключись к холсту.")
+                raise AppError("NOT_JOINED")
             if not self.stroke_limit.consume(sid):
-                raise AppError(
-                    "RATE_LIMITED",
-                    "Слишком много штрихов. Подожди немного.",
-                    http_status=429,
-                )
+                raise AppError("RATE_LIMITED")
             canvas = self.get_repo().get_canvas(canvas_id)
             bounds = (canvas["bounds_w"], canvas["bounds_h"])
             stroke = StrokeIn.model_validate(
@@ -126,9 +131,10 @@ class Realtime:
                     )
             return {"ok": True, "seq": saved["seq"], "cx": saved["cx"], "cy": saved["cy"]}
 
-        return await self.guarded("Stroke submission", handle)
+        return await self.guarded(sid, "Stroke submission", handle)
 
     async def disconnect(self, sid: str, reason: str | None = None) -> None:
         self.rooms.drop(sid)
+        self.locales.pop(sid, None)
         self.stroke_limit.buckets.pop(sid, None)
         self.viewport_limit.buckets.pop(sid, None)

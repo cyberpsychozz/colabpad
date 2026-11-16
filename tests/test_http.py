@@ -48,13 +48,13 @@ def test_canvas_and_chunk_contract(
 @pytest.mark.parametrize(
     "path,code,status,field",
     [
-        ("/api/canvases/no", "INVALID_ID", 400, "canvasId"),
-        ("/api/canvases/0123456789", "CANVAS_NOT_FOUND", 404, None),
+        ("/api/canvases/no", "VALIDATION_FAILED", 400, "canvasId"),
+        ("/api/canvases/0123456789", "NOT_FOUND", 404, None),
         ("/api/canvases/world/chunks/19/0", "NOT_FOUND", 404, None),
         ("/api/canvases/world/chunks/0/11", "NOT_FOUND", 404, None),
-        ("/api/canvases/world/chunks/-1/0", "VALIDATION_ERROR", 400, "cx"),
-        ("/api/canvases/world/chunks/0/0?afterSeq=-1", "VALIDATION_ERROR", 400, "afterSeq"),
-        ("/api/canvases/world/chunks/0/0?afterSeq=abc", "VALIDATION_ERROR", 400, "afterSeq"),
+        ("/api/canvases/world/chunks/-1/0", "VALIDATION_FAILED", 400, "cx"),
+        ("/api/canvases/world/chunks/0/0?afterSeq=-1", "VALIDATION_FAILED", 400, "afterSeq"),
+        ("/api/canvases/world/chunks/0/0?afterSeq=abc", "VALIDATION_FAILED", 400, "afterSeq"),
     ],
 )
 def test_errors(

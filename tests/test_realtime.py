@@ -46,7 +46,7 @@ def test_viewport_strokes_limits_and_errors(client: TestClient, application: Fas
         assert (await realtime.add("a", payload()))["error"]["code"] == "NOT_JOINED"
         assert (await realtime.viewport("a", view([[0, 0]], "0123456789")))["error"][
             "code"
-        ] == "CANVAS_NOT_FOUND"
+        ] == "NOT_FOUND"
         too_many = [[x, 0] for x in range(13)]
         assert (await realtime.viewport("a", view(too_many)))["error"]["field"] == "chunks"
         assert (await realtime.viewport("a", view([[-1, 0]])))["error"]["field"] == "chunks"

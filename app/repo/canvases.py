@@ -6,7 +6,7 @@ from typing import Any
 
 from nanoid import generate
 
-from app.errors import not_found
+from app.errors import AppError
 
 WORLD_ID = "world"
 
@@ -50,5 +50,5 @@ class CanvasRepo:
             "SELECT * FROM canvas WHERE id=?", (canvas_id,)
         ).fetchone()
         if row is None:
-            raise not_found()
+            raise AppError("NOT_FOUND")
         return dict(row)

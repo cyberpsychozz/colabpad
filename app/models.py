@@ -25,7 +25,7 @@ Point = tuple[Number, Number, Number]
 
 def check_id(canvas_id: str) -> str:
     if not re.fullmatch(CANVAS_ID, canvas_id):
-        raise AppError("INVALID_ID", "Некорректная ссылка на холст.", "canvasId")
+        raise AppError("VALIDATION_FAILED", "canvasId")
     return canvas_id
 
 

@@ -30,7 +30,7 @@ export async function openWorld(root, canvasId) {
   try { config = await getCanvas(canvasId); }
   catch (error) {
     if (!alive) return () => {};
-    loading.replaceChildren(element('h2', {}, t(error.code === 'CANVAS_NOT_FOUND' || error.code === 'INVALID_ID' ? 'err.NOT_FOUND' : 'err.NETWORK')));
+    loading.replaceChildren(element('h2', {}, t(error.code === 'NOT_FOUND' || error.code === 'VALIDATION_FAILED' ? 'err.NOT_FOUND' : 'err.NETWORK')));
     return () => { alive = false; };
   }
   if (!alive) return () => {};

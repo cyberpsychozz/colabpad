@@ -72,12 +72,12 @@ test('timeout retries the same UUID and confirms it only once', async () => {
 test('rate limit waits 2s and validation rejection removes optimistic stroke', async () => {
   const { sync, transport, sleeps, errors, seqs } = setup();
   let count = 0;
-  transport.reply = () => ({ ok: false, error: { code: ++count === 1 ? 'RATE_LIMITED' : 'VALIDATION_ERROR' } });
+  transport.reply = () => ({ ok: false, error: { code: ++count === 1 ? 'RATE_LIMITED' : 'VALIDATION_FAILED' } });
   sync.setViewport([[0, 0]]);
   sync.start(); await tick();
   sync.enqueue(local('rejected')); await tick();
   assert.deepEqual(sleeps, [2000]);
-  assert.deepEqual(errors, ['VALIDATION_ERROR']);
+  assert.deepEqual(errors, ['VALIDATION_FAILED']);
   assert.equal(sync.outbox.length, 0);
   assert.deepEqual(seqs(), []);
   sync.stop();
