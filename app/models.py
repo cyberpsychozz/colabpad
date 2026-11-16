@@ -2,7 +2,7 @@
 
 import math
 import re
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import (
@@ -114,6 +114,21 @@ class AliveIn(WireModel):
 
 class ChoiceIn(WireModel):
     type: str = Field(max_length=20)
+
+
+class InteractIn(WireModel):
+    entity_id: str = Field(max_length=64)
+    action: Literal["pet", "push", "drag"]
+    to: tuple[Number, Number] | None = None
+
+
+class ClaimIn(WireModel):
+    controller_id: str = Field(max_length=64)
+
+
+class InputIn(WireModel):
+    ax: float = Field(ge=-1, le=1, allow_inf_nan=False)
+    ay: float = Field(ge=-1, le=1, allow_inf_nan=False)
 
 
 class StrokeOut(WireModel):

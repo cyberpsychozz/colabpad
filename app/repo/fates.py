@@ -53,7 +53,7 @@ class FateRepo:
     def chunk_fossils(self, canvas_id: str, x0: float, y0: float, x1: float, y1: float) -> list[dict[str, Any]]:
         """Fossils lying in a rectangle: where the entity died, with its strokes and shift."""
         rows = self.db.execute(
-            "SELECT id, death_x - origin_x AS dx, death_y - origin_y AS dy FROM entity"
+            "SELECT id, death_x, death_y, death_x - origin_x AS dx, death_y - origin_y AS dy FROM entity"
             " WHERE canvas_id=? AND died_at IS NOT NULL AND death_x>=? AND death_x<? AND death_y>=? AND death_y<?",
             (canvas_id, x0, x1, y0, y1),
         ).fetchall()
@@ -68,7 +68,8 @@ class FateRepo:
             ]
             if seqs:
                 fossils.append({
-                    "entityId": row["id"], "dx": row["dx"] or 0, "dy": row["dy"] or 0,
+                    "entityId": row["id"], "x": row["death_x"], "y": row["death_y"],
+                    "dx": row["dx"] or 0, "dy": row["dy"] or 0,
                     "strokes": self.strokes_by_seq(canvas_id, seqs),  # type: ignore[attr-defined]
                 })  # fmt: skip
         return fossils

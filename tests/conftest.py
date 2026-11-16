@@ -56,7 +56,9 @@ def private_canvas(repo: Repository) -> str:
         "INSERT INTO app_user(id, email, created_at) VALUES(?,?,0)",
         (user_id, f"{user_id}@example.test"),
     )
-    return repo.create_private_canvas(user_id, None, *BOUNDS)["id"]
+    canvas_id = repo.create_private_canvas(user_id, None, *BOUNDS)["id"]
+    repo.db.execute("UPDATE canvas SET link_role='editor' WHERE id=?", (canvas_id,))
+    return canvas_id
 
 
 @pytest.fixture

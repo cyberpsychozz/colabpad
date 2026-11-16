@@ -107,6 +107,7 @@ class SimBridge:
         self.hz: int = config.balance["tick_hz"]
         self.restarts = 0
         self.watchdog: asyncio.Task[None] | None = None
+        self.sweeper: asyncio.Task[None] | None = None
         self.events: list[tuple[Any, ...]] = []
         self.events_flushed = 0.0
         self.pending: set[asyncio.Future[Any]] = set()
@@ -134,6 +135,7 @@ class SimBridge:
         self.load()
         if self.mode == "process":
             self.watchdog = asyncio.create_task(self.watch())
+            self.sweeper = asyncio.create_task(self.sweep_leases())
 
     def load(self) -> None:
         """Tell a fresh simulation about every canvas, living entity and subscription."""
@@ -161,11 +163,18 @@ class SimBridge:
                 self.transport.start(self.deliver)
                 self.load()
 
+    async def sweep_leases(self) -> None:
+        while True:
+            await asyncio.sleep(1)
+            await self.realtime.control.sweep()
+
     async def stop(self) -> None:
         if self.transport is None:
             return
         if self.watchdog:
             self.watchdog.cancel()
+        if self.sweeper:
+            self.sweeper.cancel()
         batch = self.transport.stop()
         if batch:
             await self.handle(batch)
@@ -314,7 +323,8 @@ class SimBridge:
             {"seqs": dead["seqs"], "fate": "fossil", "entityId": message["id"]},
             sorted({room(dead["canvas"], (s["cx"], s["cy"])) for s in strokes}),
         )
-        fossil = {"entityId": message["id"], "dx": dead["dx"], "dy": dead["dy"], "strokes": strokes}
+        fossil = {"entityId": message["id"], "x": message["x"], "y": message["y"],
+                  "dx": dead["dx"], "dy": dead["dy"], "strokes": strokes}  # fmt: skip
         await self.realtime.emit(
             "world:event",
             {"type": "fossil", "fossil": fossil},

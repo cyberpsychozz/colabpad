@@ -13,8 +13,9 @@ from app.config import GameConfig, Settings
 from app.errors import AppError, validation_error
 from app.i18n import pick_locale
 from app.models import StrokeIn, ViewportIn, chunk_of
-from app.realtime.ratelimit import SlidingWindow
 from app.auth.sessions import session_id_from_cookie_header
+from app.realtime.control import Control
+from app.realtime.ratelimit import SlidingWindow
 from app.realtime.rooms import Rooms, room, session_room
 from app.repo import Repository
 
@@ -48,6 +49,44 @@ class Realtime:
         self.sio.on("viewport:set", self.viewport)
         self.sio.on("stroke:add", self.add)
         self.sio.on("disconnect", self.disconnect)
+        self.control = Control(self, config.limits)
+        for event, handler in (
+            ("entity:interact", self.control.interact),
+            ("control:claim", self.control.claim),
+            ("control:release", self.control.release),
+        ):
+            self.sio.on(event, self.acked(event, handler))
+        self.sio.on("control:input", self.quiet(self.control.input))
+
+    def acked(self, what: str, handler: Callable[[str, Any], Any]) -> Callable[[str, Any], Any]:
+        async def wrapped(sid: str, data: Any = None) -> dict[str, Any]:
+            return await self.guarded(sid, what, lambda: handler(sid, data))
+
+        return wrapped
+
+    def quiet(self, handler: Callable[[str, Any], Any]) -> Callable[[str, Any], Any]:
+        """For high-rate events without an ack: bad input is dropped, not answered."""
+
+        async def wrapped(sid: str, data: Any = None) -> None:
+            try:
+                await handler(sid, data)
+            except (ValidationError, AppError):
+                pass
+
+        return wrapped
+
+    ROLES = ("none", "viewer", "player", "editor")
+
+    def role(self, sid: str, canvas_id: str) -> str:
+        """The socket's effective role. Accounts and private worlds refine this in T20."""
+        canvas = self.get_repo().get_canvas(canvas_id)
+        if canvas["frozen"]:
+            return "viewer"
+        return "editor" if canvas["kind"] == "world" else canvas["link_role"]
+
+    def require_role(self, sid: str, canvas_id: str, needed: str) -> None:
+        if self.ROLES.index(self.role(sid, canvas_id)) < self.ROLES.index(needed):
+            raise AppError("FORBIDDEN_ROLE")
 
     def check_size(self, data: Any) -> None:
         if (
@@ -131,6 +170,7 @@ class Realtime:
                 raise AppError("NOT_JOINED")
             if not self.stroke_limit.consume(sid):
                 raise AppError("RATE_LIMITED")
+            self.require_role(sid, canvas_id, "editor")
             canvas = self.get_repo().get_canvas(canvas_id)
             bounds = (canvas["bounds_w"], canvas["bounds_h"])
             stroke = StrokeIn.model_validate(
@@ -160,6 +200,7 @@ class Realtime:
         return await self.guarded(sid, "Stroke submission", handle)
 
     async def disconnect(self, sid: str, reason: str | None = None) -> None:
+        await self.control.disconnect(sid)
         self.rooms.drop(sid)
         self.locales.pop(sid, None)
         self.sessions.pop(sid, None)
