@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 import socketio
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
@@ -17,7 +17,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from app.config import GameConfig, Settings
 from app.db import connect
 from app.errors import AppError, too_large, validation_error
-from app.models import CanvasOut, ErrorOut, StrokesOut, check_id
+from app.models import CanvasOut, ChunkOut, ErrorOut, check_id
 from app.realtime.gateway import Realtime
 from app.repo import Repository
 
@@ -104,7 +104,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(application: FastAPI):
         settings.sprites_dir.mkdir(parents=True, exist_ok=True)
         connection = connect(settings.db_path)
-        application.state.repo = Repository(connection, settings)
+        application.state.repo = Repository(connection)
+        world = config.limits["world"]
+        application.state.repo.ensure_world(world["bounds_w"], world["bounds_h"])
         try:
             yield
         finally:
@@ -118,8 +120,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         responses={400: {"model": ErrorOut}, 404: {"model": ErrorOut}},
     )
     application.state.settings = settings
-    application.state.config = GameConfig(settings.config_dir)
-    application.state.realtime = Realtime(settings, lambda: application.state.repo)
+    application.state.config = config = GameConfig(settings.config_dir)
+    application.state.realtime = Realtime(
+        settings, config, lambda: application.state.repo
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.origins,
@@ -164,22 +168,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def get_canvas(canvas_id: str) -> dict[str, Any]:
         canvas = application.state.repo.get_canvas(check_id(canvas_id))
         return {
-            **canvas,
+            "id": canvas["id"],
+            "kind": canvas["kind"],
+            "title": canvas["title"],
+            # Roles arrive with accounts (T20); the shared world gives editor to all.
+            "role": "viewer" if canvas["frozen"] else "editor",
+            "frozen": bool(canvas["frozen"]),
+            "bounds": {"w": canvas["bounds_w"], "h": canvas["bounds_h"]},
+            "spawn": {"x": canvas["bounds_w"] / 2, "y": canvas["bounds_h"] / 2},
+            "limits": {
+                "brush_width_min": settings.brush_width_min,
+                "brush_width_max": settings.brush_width_max,
+                "max_points_per_stroke": settings.max_points_per_stroke,
+                "max_payload_bytes": settings.max_payload_bytes,
+                "simplify_epsilon": settings.simplify_epsilon,
+                "chunk_size": config.limits["world"]["chunk_size"],
+                "max_chunks": config.limits["viewport"]["max_chunks"],
+            },
             "palette": settings.colors,
-            "brush_width_min": settings.brush_width_min,
-            "brush_width_max": settings.brush_width_max,
-            "max_points_per_stroke": settings.max_points_per_stroke,
-            "max_payload_bytes": settings.max_payload_bytes,
-            "simplify_epsilon": settings.simplify_epsilon,
-            "strokes": application.state.repo.list_strokes(canvas_id),
         }
 
-    @application.get("/api/canvases/{canvas_id}/strokes", response_model=StrokesOut)
-    async def get_strokes(
-        canvas_id: str, after_seq: Annotated[int, Query(alias="afterSeq", ge=0)] = 0
+    @application.get(
+        "/api/canvases/{canvas_id}/chunks/{cx}/{cy}", response_model=ChunkOut
+    )
+    async def get_chunk(
+        canvas_id: str,
+        cx: Annotated[int, Path(ge=0)],
+        cy: Annotated[int, Path(ge=0)],
+        after_seq: Annotated[int, Query(alias="afterSeq", ge=0)] = 0,
     ) -> dict[str, Any]:
-        application.state.repo.get_canvas(check_id(canvas_id))
-        return {"strokes": application.state.repo.list_strokes(canvas_id, after_seq)}
+        repo = application.state.repo
+        canvas = repo.get_canvas(check_id(canvas_id))
+        size = config.limits["world"]["chunk_size"]
+        if cx * size >= canvas["bounds_w"] or cy * size >= canvas["bounds_h"]:
+            raise AppError("NOT_FOUND", "Такого участка нет.", http_status=404)
+        # No await between these reads: lastSeq is a consistent watermark.
+        return {
+            "strokes": repo.chunk_strokes(canvas_id, cx, cy, after_seq),
+            "fates": repo.chunk_fates(canvas_id, cx, cy),
+            "entities": [],
+            "last_seq": canvas["stroke_count"],
+            "tick": 0,
+        }
 
     @application.post("/api/metrics/{key}", status_code=204)
     async def metric(key: str) -> Response:

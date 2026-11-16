@@ -9,8 +9,8 @@ from uuid import uuid4
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.models import StrokeIn
 from deploy.backup import backup
+from tests.conftest import private_canvas, stroke_in
 
 
 def ack(ws: Any, number: int, event: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -27,7 +27,7 @@ def test_fifty_rooms_and_ten_collaborators(
     client: TestClient, application: FastAPI
 ) -> None:
     repo = application.state.repo
-    ids = [repo.create_canvas()["id"] for _ in range(50)]
+    ids = [private_canvas(repo) for _ in range(50)]
     with ExitStack() as stack:
         sockets = []
         for i in range(59):
@@ -41,8 +41,7 @@ def test_fifty_rooms_and_ten_collaborators(
             ws.send_text("40")
             assert ws.receive_text().startswith("40")
             canvas_id = ids[i] if i < 50 else ids[0]
-            joined = ack(ws, 1, "canvas:join", {"canvasId": canvas_id})
-            assert joined["ok"]
+            assert ack(ws, 1, "canvas:join", {"canvasId": canvas_id})["ok"]
             sockets.append(ws)
         for i in [0, *range(50, 59)]:
             saved = ack(
@@ -58,32 +57,22 @@ def test_fifty_rooms_and_ten_collaborators(
                 },
             )
             assert saved["ok"]
-        strokes = client.get(f"/api/canvases/{ids[0]}").json()["strokes"]
+        strokes = client.get(f"/api/canvases/{ids[0]}/chunks/0/0").json()["strokes"]
         assert [stroke["seq"] for stroke in strokes] == list(range(1, 11))
-        assert client.get(f"/api/canvases/{ids[1]}").json()["strokes"] == []
+        assert client.get(f"/api/canvases/{ids[1]}/chunks/0/0").json()["strokes"] == []
 
 
-def test_five_thousand_stroke_load_and_online_backup(
-    client: TestClient, application: FastAPI, tmp_path: Path, record_property: Any
+def test_five_thousand_strokes_in_a_chunk_and_online_backup(
+    client: TestClient, application: FastAPI, tmp_path: Path
 ) -> None:
     repo = application.state.repo
-    canvas = repo.create_canvas()
     for i in range(5000):
-        stroke = StrokeIn.model_validate(
-            {
-                "canvasId": canvas["id"],
-                "clientId": str(uuid4()),
-                "color": "#123456",
-                "width": 3,
-                "points": [[(i + j) % 1600, (i + j) % 1000, 0.5] for j in range(12)],
-            }
-        )
-        repo.insert_stroke(stroke)
+        points = [[(i + j) % 1000, (i * 7 + j) % 1000, 0.5] for j in range(12)]
+        repo.insert_stroke(stroke_in(width=3, points=points), (0, 0))
     started = time.perf_counter()
-    data = client.get(f"/api/canvases/{canvas['id']}")
+    data = client.get("/api/canvases/world/chunks/0/0")
     elapsed = time.perf_counter() - started
     assert data.status_code == 200 and len(data.json()["strokes"]) == 5000
-    record_property("load_5000_seconds", round(elapsed, 4))
     print(f"\n5000 strokes / 12 points: REST {elapsed:.3f}s, {len(data.content)} bytes")
     copied = backup(Path(application.state.settings.db_path), tmp_path / "backups")
     with sqlite3.connect(copied) as db:

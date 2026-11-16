@@ -22,8 +22,6 @@ class Settings(BaseSettings):
     yookassa_shop_id: str = ""
     yookassa_secret_key: str = ""
     cors_origins: str = "http://localhost:5173"
-    canvas_width: int = Field(1600, gt=0)
-    canvas_height: int = Field(1000, gt=0)
     max_points_per_stroke: int = Field(2000, ge=2)
     max_payload_bytes: int = Field(65536, ge=1024)
     stroke_rate_limit: str = "30/10"

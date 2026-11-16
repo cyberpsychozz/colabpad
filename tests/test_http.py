@@ -1,6 +1,6 @@
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -8,35 +8,38 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app, create_asgi
-from app.models import StrokeIn
 
 
-def payload(canvas_id: str, **changes: Any) -> dict[str, Any]:
-    return {
-        "canvasId": canvas_id,
-        "clientId": str(uuid4()),
-        "color": "#1E88E5",
-        "width": 6,
-        "points": [[10, 20, 0.5], [30, 40, 0.8]],
-        **changes,
-    }
-
-
-def test_rest_contract(client: TestClient, application: FastAPI) -> None:
+def test_canvas_and_chunk_contract(
+    client: TestClient, application: FastAPI, add_stroke: Callable[..., dict[str, Any]]
+) -> None:
     assert client.get("/api/health").json() == {"ok": True}
-    repo = application.state.repo
-    created = repo.create_canvas()
-    assert len(created["id"]) == 10
-    canvas = client.get(f"/api/canvases/{created['id']}").json()
-    assert canvas["strokes"] == [] and canvas["strokeCount"] == 0
-    assert canvas["brushWidthMin"] == 1 and len(canvas["palette"]) == 8
+    world = client.get("/api/canvases/world").json()
+    assert set(world) == {
+        "id", "kind", "title", "role", "frozen", "bounds", "spawn", "limits", "palette",
+    }  # fmt: skip
+    assert world["kind"] == "world" and world["role"] == "editor" and not world["frozen"]
+    assert world["bounds"] == {"w": 19456, "h": 11264}
+    assert world["spawn"] == {"x": 9728, "y": 5632}
+    assert world["limits"]["chunkSize"] == 1024 and world["limits"]["maxChunks"] == 12
+    assert world["limits"]["brushWidthMin"] == 1 and len(world["palette"]) == 8
+
+    empty = client.get("/api/canvases/world/chunks/0/0").json()
+    assert empty == {"strokes": [], "fates": [], "entities": [], "lastSeq": 0, "tick": 0}
     for _ in range(3):
-        repo.insert_stroke(StrokeIn.model_validate(payload(created["id"])))
-    strokes = client.get(f"/api/canvases/{created['id']}/strokes?afterSeq=1").json()[
-        "strokes"
-    ]
-    assert [s["seq"] for s in strokes] == [2, 3]
-    assert set(strokes[0]) == {"seq", "color", "width", "points", "createdAt"}
+        add_stroke()
+    add_stroke(points=[[1500, 30, 0.5], [1600, 40, 0.5]])
+    application.state.repo.insert_fates("world", [2], "destroyed")
+    chunk = client.get("/api/canvases/world/chunks/0/0?afterSeq=1").json()
+    assert [s["seq"] for s in chunk["strokes"]] == [2, 3]
+    assert set(chunk["strokes"][0]) == {
+        "seq", "color", "width", "points", "cx", "cy", "createdAt",
+    }  # fmt: skip
+    assert chunk["fates"] == [{"seq": 2, "fate": "destroyed", "entityId": None}]
+    # lastSeq is the canvas-wide watermark, not the chunk's own maximum.
+    assert chunk["lastSeq"] == 4
+    other = client.get("/api/canvases/world/chunks/1/0").json()
+    assert [s["seq"] for s in other["strokes"]] == [4] and other["fates"] == []
     assert client.get("/docs").status_code == 200
     assert client.get("/api/health").headers["cache-control"] == "no-store"
     assert client.post("/api/canvases").status_code == 404
@@ -47,18 +50,11 @@ def test_rest_contract(client: TestClient, application: FastAPI) -> None:
     [
         ("/api/canvases/no", "INVALID_ID", 400, "canvasId"),
         ("/api/canvases/0123456789", "CANVAS_NOT_FOUND", 404, None),
-        (
-            "/api/canvases/0123456789/strokes?afterSeq=-1",
-            "VALIDATION_ERROR",
-            400,
-            "afterSeq",
-        ),
-        (
-            "/api/canvases/0123456789/strokes?afterSeq=abc",
-            "VALIDATION_ERROR",
-            400,
-            "afterSeq",
-        ),
+        ("/api/canvases/world/chunks/19/0", "NOT_FOUND", 404, None),
+        ("/api/canvases/world/chunks/0/11", "NOT_FOUND", 404, None),
+        ("/api/canvases/world/chunks/-1/0", "VALIDATION_ERROR", 400, "cx"),
+        ("/api/canvases/world/chunks/0/0?afterSeq=-1", "VALIDATION_ERROR", 400, "afterSeq"),
+        ("/api/canvases/world/chunks/0/0?afterSeq=abc", "VALIDATION_ERROR", 400, "afterSeq"),
     ],
 )
 def test_errors(
@@ -86,8 +82,6 @@ def test_limits_and_config_reach_browser(tmp_path: Path) -> None:
         Settings(
             _env_file=None,
             data_dir=tmp_path,
-            canvas_width=400,
-            canvas_height=300,
             brush_width_min=2,
             brush_width_max=8,
             max_points_per_stroke=50,
@@ -96,15 +90,11 @@ def test_limits_and_config_reach_browser(tmp_path: Path) -> None:
         )
     )
     with TestClient(create_asgi(app)) as client:
-        created = app.state.repo.create_canvas()
-        data = client.get(f"/api/canvases/{created['id']}").json()
-        assert data["width"] == 400 and data["height"] == 300
+        data = client.get("/api/canvases/world").json()
         assert data["palette"] == ["#123456", "#ffffff"]
-        assert (
-            data["brushWidthMax"] == 8
-            and data["maxPointsPerStroke"] == 50
-            and data["simplifyEpsilon"] == 0.7
-        )
+        assert data["limits"]["brushWidthMax"] == 8
+        assert data["limits"]["maxPointsPerStroke"] == 50
+        assert data["limits"]["simplifyEpsilon"] == 0.7
 
 
 def test_static_spa_and_legacy_redirect(client: TestClient) -> None:

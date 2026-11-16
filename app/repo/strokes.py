@@ -2,10 +2,10 @@
 
 import json
 import sqlite3
-import time
 from typing import Any
 
 from app.models import StrokeIn
+from app.repo.canvases import now_ms
 
 
 class StrokeRepo:
@@ -18,19 +18,26 @@ class StrokeRepo:
             "color": row["color"],
             "width": row["width"],
             "points": json.loads(row["points"]),
+            "cx": row["chunk_x"],
+            "cy": row["chunk_y"],
             "createdAt": row["created_at"],
         }
 
-    def list_strokes(self, canvas_id: str, after_seq: int = 0) -> list[dict[str, Any]]:
+    def chunk_strokes(
+        self, canvas_id: str, cx: int, cy: int, after_seq: int = 0
+    ) -> list[dict[str, Any]]:
         return [
             self._stroke(row)
             for row in self.db.execute(
-                "SELECT * FROM stroke WHERE canvas_id=? AND seq>? ORDER BY seq",
-                (canvas_id, after_seq),
+                "SELECT * FROM stroke WHERE canvas_id=? AND chunk_x=? AND chunk_y=?"
+                " AND seq>? ORDER BY seq",
+                (canvas_id, cx, cy, after_seq),
             )
         ]
 
-    def insert_stroke(self, stroke: StrokeIn) -> tuple[dict[str, Any], bool]:
+    def insert_stroke(
+        self, stroke: StrokeIn, chunk: tuple[int, int], session_id: str | None = None
+    ) -> tuple[dict[str, Any], bool]:
         # This function is synchronous: never yield while assigning seq.
         self.db.execute("BEGIN IMMEDIATE")
         try:
@@ -43,16 +50,20 @@ class StrokeRepo:
                 return self._stroke(existing), False
             canvas = self.get_canvas(stroke.canvas_id)  # type: ignore[attr-defined]
             seq = canvas["stroke_count"] + 1
-            created_at = time.time_ns() // 1_000_000
+            created_at = now_ms()
             self.db.execute(
-                "INSERT INTO stroke(canvas_id,seq,client_id,color,width,points,created_at) VALUES(?,?,?,?,?,?,?)",
+                "INSERT INTO stroke(canvas_id,seq,client_id,session_id,color,width,points,"
+                "chunk_x,chunk_y,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (
                     stroke.canvas_id,
                     seq,
                     stroke.client_id,
+                    session_id,
                     stroke.color,
                     stroke.width,
                     json.dumps(stroke.points, separators=(",", ":")),
+                    chunk[0],
+                    chunk[1],
                     created_at,
                 ),
             )
@@ -70,5 +81,7 @@ class StrokeRepo:
             "color": stroke.color,
             "width": stroke.width,
             "points": stroke.points,
+            "cx": chunk[0],
+            "cy": chunk[1],
             "createdAt": created_at,
         }, True

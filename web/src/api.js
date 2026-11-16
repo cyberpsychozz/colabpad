@@ -16,5 +16,5 @@ export async function request(path, options = {}) {
 }
 
 export const getCanvas = id => request(`/api/canvases/${encodeURIComponent(id)}`);
-export const getStrokes = (id, afterSeq) => request(`/api/canvases/${encodeURIComponent(id)}/strokes?afterSeq=${afterSeq}`);
+export const getChunk = (id, cx, cy, afterSeq = 0) => request(`/api/canvases/${encodeURIComponent(id)}/chunks/${cx}/${cy}?afterSeq=${afterSeq}`);
 export const countMetric = key => request(`/api/metrics/${key}`, { method: 'POST' });

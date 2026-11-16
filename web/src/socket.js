@@ -1,11 +1,10 @@
 import { io } from 'socket.io-client';
-import { getStrokes } from './api.js';
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export class CanvasSync {
   constructor({ canvas, onStroke, onReset, onState, onError,
-    transport, fetchStrokes = getStrokes, sleep = wait }) {
+    transport, fetchStrokes, sleep = wait }) {
     Object.assign(this, { canvas, onStroke, onReset, onState, onError, fetchStrokes, sleep });
     this.socket = transport || io({ autoConnect: false });
     this.outbox = [];
