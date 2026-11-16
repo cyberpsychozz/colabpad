@@ -22,5 +22,8 @@
   "err.PAYLOAD_TOO_LARGE": "Сообщение слишком большое",
   "err.INTERNAL": "Что-то сломалось, мы уже чиним",
   "err.NOT_JOINED": "Сначала подключись к миру",
-  "page.frontend_missing": "Интерфейс ещё не собран. Выполни npm run build в папке web."
+  "page.frontend_missing": "Интерфейс ещё не собран. Выполни npm run build в папке web.",
+  "label.apple": "яблоко",
+  "label.fish": "рыба",
+  "label.flame": "огонь"
 }

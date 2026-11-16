@@ -110,6 +110,7 @@ class SimBridge:
         self.events: list[tuple[Any, ...]] = []
         self.events_flushed = 0.0
         self.pending: set[asyncio.Future[Any]] = set()
+        self.closed = False
 
     # ---- lifecycle
 
@@ -169,6 +170,8 @@ class SimBridge:
         if batch:
             await self.handle(batch)
         self.flush_events()
+        # Batches still in flight from the reader thread arrive after the database is closed.
+        self.closed = True
 
     # ---- main -> sim
 
@@ -217,6 +220,8 @@ class SimBridge:
     # ---- sim -> main
 
     async def handle(self, batch: list[dict[str, Any]]) -> None:
+        if self.closed:
+            return
         for message in batch:
             try:
                 await getattr(self, f"on_{message['op']}")(message)

@@ -22,5 +22,8 @@
   "err.PAYLOAD_TOO_LARGE": "The message is too large",
   "err.INTERNAL": "Something broke — we're on it",
   "err.NOT_JOINED": "Connect to the world first",
-  "page.frontend_missing": "The frontend isn't built yet. Run npm run build in the web folder."
+  "page.frontend_missing": "The frontend isn't built yet. Run npm run build in the web folder.",
+  "label.apple": "apple",
+  "label.fish": "fish",
+  "label.flame": "fire"
 }

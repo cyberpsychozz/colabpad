@@ -5,6 +5,7 @@ messages for the main process in `self.out`. That keeps it deterministic and tes
 app/sim/process.py wraps it in a process.
 """
 
+import copy
 import math
 import random
 from typing import Any
@@ -61,7 +62,8 @@ class World:
         self.out: list[dict[str, Any]] = []
         self.gone: dict[tuple[int, int], list[str]] = {}
         self.last_snapshot = 0.0
-        self.stats: dict[str, int] = {}
+        # Derived values that are cheap to recompute (water outlines); never persisted.
+        self.cache: dict[str, Any] = {}
 
     # ---- storage
 
@@ -128,6 +130,7 @@ class World:
         self.by_type[entity.type].discard(entity.id)
         self.hot.discard(entity.id)
         self.inputs.pop(entity.id, None)
+        self.cache.pop(entity.id, None)
         self.gone.setdefault(entity.chunk, []).append(entity.id)
         for name in MASKS:
             getattr(self, name)[entity.i] = False
@@ -364,7 +367,7 @@ class World:
             "facing": entity.facing, "state": entity.state,
             "hp": round(float(self.hp[i]), 1), "hunger": round(float(self.hunger[i]), 1),
             "thirst": round(float(self.thirst[i]), 1), "energy": round(float(self.energy[i]), 1),
-            "data": entity.data, "age": round(self.t - entity.born, 1), "bound_to": entity.bound_to,
+            "data": copy.deepcopy(entity.data), "age": round(self.t - entity.born, 1), "bound_to": entity.bound_to,
         }  # fmt: skip
 
     def snapshot(self, everything: bool = False) -> None:

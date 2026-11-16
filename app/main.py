@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.alive.api import create_router
+from app.alive.builtin import ensure_builtin_sprites
 from app.alive.queue import AliveService, Rig
 from app.alive.rig import rig_sprite
 from app.alive.vlm import Budget, OpenRouterVlm, UnavailableVlm, Vlm, load_prompt
@@ -130,6 +131,7 @@ def create_app(
         application.state.repo = Repository(connection)
         world = config.limits["world"]
         application.state.repo.ensure_world(world["bounds_w"], world["bounds_h"])
+        ensure_builtin_sprites(application.state.repo, settings.sprites_dir)
         http = httpx.AsyncClient()
         sim = application.state.sim = SimBridge(
             settings, config, lambda: application.state.repo, application.state.realtime

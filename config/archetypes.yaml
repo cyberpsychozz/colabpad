@@ -9,7 +9,6 @@ creature:
     Temper: {kind: skittish}
     Health: {hp: 100}
     Edible: {nutrition: 50}
-    Flammable: {}
     Reproduce: {}
 predator:
   title: {ru: Хищник, en: Predator}
@@ -19,7 +18,6 @@ predator:
     Diet: {kind: meat}
     Temper: {kind: hostile}
     Health: {hp: 150}
-    Flammable: {}
     Reproduce: {}
 aquatic:
   title: {ru: Водное, en: Aquatic}
@@ -40,7 +38,6 @@ person:
     Temper: {kind: passive}
     Health: {hp: 100}
     Role: {kind: from_vlm, default: villager}
-    Flammable: {}
     Reproduce: {needs_shelter: true}
 food:
   title: {ru: Еда, en: Food}
@@ -54,7 +51,6 @@ plant:
     Locomotion: {mode: none}
     Health: {hp: 100}
     Flammable: {}
-    Spawner: {what: food, variant: fruit_tree}
     Edible: {variant: pasture}
 water:
   title: {ru: Вода, en: Water}

@@ -22,6 +22,8 @@ nutrition:
   apple: 30
   meat: 50
   cooked_mult: 1.5
+  # Food with one of these labels (either language) is meat; everything else is not.
+  meat_labels: [meat, fish, steak, sausage, ham, chicken, bone, мясо, рыба, колбаса, курица, кость]
   bites: 3
 flee_radius: 150
 reproduction:

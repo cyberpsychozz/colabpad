@@ -35,14 +35,15 @@ def test_alive_entities_enter_the_world_and_their_state_is_persisted(make: Any) 
     world.events.clear()
     on_loop(client, step(world, 5.2))
     deltas = [data for name, data, rooms in world.events if name == "world:delta"]
-    assert deltas and deltas[0]["upd"][0][0] == entity_id
+    # The shove moved it 40 px away from the cursor; after that it lives its own life.
+    assert deltas and deltas[0]["upd"][0][0] == entity_id and deltas[0]["upd"][0][1] > 235
     moved_x = sim.live[entity_id]["x"]
-    assert moved_x > 230
+    assert moved_x == round(float(core.worlds["world"].x[core.worlds["world"].entities[entity_id].i]), 1)
     # Chunk snapshots come from live state, and the database got the 5-second snapshot.
     chunk = client.get("/api/canvases/world/chunks/0/0").json()
     assert chunk["entities"][0]["x"] == moved_x
     stored = world.app.state.repo.db.execute("SELECT x FROM entity WHERE id=?", (entity_id,)).fetchone()
-    assert abs(stored["x"] - moved_x) < 1
+    assert abs(stored["x"] - moved_x) < 12  # the snapshot is at most a few ticks old
 
 
 def test_death_makes_a_fossil_and_explosions_destroy_static_strokes(make: Any) -> None:
@@ -82,10 +83,10 @@ def test_a_killed_simulation_process_restarts_and_the_world_resumes(tmp_path: Pa
         repo, sim = app.state.repo, app.state.sim
         repo.insert_sprite("s1", None, "s1/cutout.png", "s1/sheet.png", {})
         repo.insert_entity({
-            "id": "e1", "canvas_id": "world", "sprite_id": "s1", "archetype": "doodle",
+            "id": "e1", "canvas_id": "world", "sprite_id": "s1", "archetype": "food",
             "label": {"ru": "каракуля", "en": "doodle"}, "x": 300.0, "y": 300.0, "facing": "right",
             "state": "idle", "hp": 50.0, "hunger": 0.0, "thirst": 0.0, "energy": 100.0,
-            "params": {"sizeClass": "M", "locomotion": "hop", "w": 40, "h": 40}, "origin_x": 300.0, "origin_y": 300.0,
+            "params": {"sizeClass": "M", "w": 40, "h": 40}, "origin_x": 300.0, "origin_y": 300.0,
         })  # fmt: skip
         sim.spawn("e1")
         app.state.realtime.rooms.set_viewport("viewer", "world", frozenset({(0, 0)}))
@@ -115,3 +116,36 @@ def test_a_killed_simulation_process_restarts_and_the_world_resumes(tmp_path: Pa
         sim.send({"op": "interact", "canvas": "world", "id": "e1", "action": "drag", "to": [700, 300]})
         assert pushed_to(700)
         assert client.get("/api/health").json() == {"ok": True}
+
+
+def test_things_the_world_makes_are_stored_and_shown_with_builtin_sprites(make: Any) -> None:
+    world, client = make()
+    sim, repo = world.app.state.sim, world.app.state.repo
+    core = sim.transport.core.worlds["world"]
+    world.app.state.realtime.rooms.set_viewport("viewer", "world", frozenset({(0, 0)}))
+    tree_id = "tree-1"
+    repo.insert_sprite("s-tree", None, "s-tree/cutout.png", "s-tree/sheet.png", {})
+    repo.insert_entity({
+        "id": tree_id, "canvas_id": "world", "sprite_id": "s-tree", "archetype": "plant",
+        "label": {"ru": "яблоня", "en": "apple tree"}, "x": 400.0, "y": 300.0, "facing": "right",
+        "state": "idle", "hp": 100.0, "hunger": 0.0, "thirst": 0.0, "energy": 100.0,
+        "params": {"sizeClass": "L", "variant": "fruit_tree", "w": 100, "h": 160}, "origin_x": 400.0, "origin_y": 300.0,
+    })  # fmt: skip
+    sim.spawn(tree_id)
+    core.entities[tree_id].data["fruit_in"] = 0.5
+    world.events.clear()
+    on_loop(client, step(world, 2))
+    spawned = [data for name, data, _ in world.events if name == "world:event" and data.get("type") == "spawn"]
+    assert len(spawned) == 1 and spawned[0]["parent"] == tree_id
+    apple = spawned[0]["entity"]
+    assert apple["type"] == "food" and apple["label"] == {"ru": "яблоко", "en": "apple"}
+    assert apple["sprite"]["sheet"] == "/sprites/builtin-apple/sheet.png"
+    assert client.get(apple["sprite"]["sheet"]).status_code == 200
+    assert apple["sprite"]["manifest"]["anims"]["idle"]["frames"] == 4
+    stored = repo.db.execute("SELECT archetype, parent_id FROM entity WHERE id=?", (apple["id"],)).fetchone()
+    assert tuple(stored) == ("food", tree_id)
+    assert {e["id"] for e in client.get("/api/canvases/world/chunks/0/0").json()["entities"]} == {tree_id, apple["id"]}
+    # The fruit event itself reached the room and was logged.
+    assert any(data.get("type") == "fruit" for name, data, _ in world.events if name == "world:event")
+    sim.flush_events()
+    assert repo.db.execute("SELECT count(*) FROM world_event WHERE type='fruit'").fetchone()[0] == 1
