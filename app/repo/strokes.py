@@ -85,3 +85,15 @@ class StrokeRepo:
             "cy": chunk[1],
             "createdAt": created_at,
         }, True
+
+    def strokes_by_seq(self, canvas_id: str, seqs: list[int]) -> list[dict[str, Any]]:
+        if not seqs:
+            return []
+        marks = ",".join("?" * len(seqs))
+        return [
+            self._stroke(row)
+            for row in self.db.execute(
+                f"SELECT * FROM stroke WHERE canvas_id=? AND seq IN ({marks}) ORDER BY seq",
+                (canvas_id, *seqs),
+            )
+        ]

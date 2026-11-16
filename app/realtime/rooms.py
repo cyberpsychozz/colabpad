@@ -1,6 +1,7 @@
 """Chunk rooms: who is subscribed to which chunks of which canvas."""
 
 from collections import Counter
+from collections.abc import Callable
 
 Chunk = tuple[int, int]
 
@@ -18,6 +19,9 @@ class Rooms:
     def __init__(self) -> None:
         self.viewports: dict[str, tuple[str, frozenset[Chunk]]] = {}
         self.subscribers: Counter[tuple[str, Chunk]] = Counter()
+        # Called with (canvas, chunk, has_subscribers) when a chunk gains its first
+        # subscriber or loses its last one.
+        self.on_change: Callable[[str, Chunk, bool], None] = lambda canvas, chunk, on: None
 
     def canvas_of(self, sid: str) -> str | None:
         viewport = self.viewports.get(sid)
@@ -34,8 +38,11 @@ class Rooms:
             self.subscribers[key] -= 1
             if not self.subscribers[key]:
                 del self.subscribers[key]
+                self.on_change(key[0], key[1], False)
         for key in after - before:
             self.subscribers[key] += 1
+            if self.subscribers[key] == 1:
+                self.on_change(key[0], key[1], True)
         self.viewports[sid] = (canvas_id, chunks)
         return (
             sorted(room(*key) for key in after - before),

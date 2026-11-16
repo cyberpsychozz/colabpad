@@ -1,4 +1,9 @@
-from collections.abc import Callable, Iterator
+import os
+
+# Tests step the world themselves instead of starting a process per app.
+os.environ.setdefault("SIM_MODE", "inline")
+
+from collections.abc import Callable, Iterator  # noqa: E402
 from pathlib import Path
 from typing import Any
 from uuid import uuid4

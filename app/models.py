@@ -136,6 +136,7 @@ class ChunkOut(WireModel):
     strokes: list[StrokeOut]
     fates: list[FateOut]
     entities: list[dict[str, Any]]
+    fossils: list[dict[str, Any]] = []
     last_seq: int
     tick: int
 

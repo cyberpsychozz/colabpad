@@ -28,6 +28,7 @@ from app.i18n import pick_locale, translate
 from app.models import CanvasOut, ChunkOut, ErrorOut, check_id
 from app.realtime.gateway import Realtime
 from app.repo import Repository
+from app.sim.bridge import SimBridge
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,10 @@ def create_app(
         world = config.limits["world"]
         application.state.repo.ensure_world(world["bounds_w"], world["bounds_h"])
         http = httpx.AsyncClient()
+        sim = application.state.sim = SimBridge(
+            settings, config, lambda: application.state.repo, application.state.realtime
+        )
+        await sim.start()
         application.state.alive = AliveService(
             settings,
             config,
@@ -137,12 +142,14 @@ def create_app(
             application.state.realtime,
             vlm or build_vlm(http),
             rig,
+            on_spawn=lambda entity: sim.spawn(entity["id"]),
         )
         application.state.alive.start()
         try:
             yield
         finally:
             await application.state.alive.stop()
+            await sim.stop()
             await http.aclose()
             await application.state.realtime.sio.shutdown()
             connection.close()
@@ -259,7 +266,10 @@ def create_app(
         return {
             "strokes": repo.chunk_strokes(canvas_id, cx, cy, after_seq),
             "fates": repo.chunk_fates(canvas_id, cx, cy),
-            "entities": repo.living_in_rect(
+            "entities": (
+                repo.living_in_rect if settings.sim_mode == "off" else application.state.sim.entities_in
+            )(canvas_id, cx * size, cy * size, (cx + 1) * size, (cy + 1) * size),
+            "fossils": repo.chunk_fossils(
                 canvas_id, cx * size, cy * size, (cx + 1) * size, (cy + 1) * size
             ),
             "last_seq": canvas["stroke_count"],

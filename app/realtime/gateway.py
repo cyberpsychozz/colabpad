@@ -43,6 +43,7 @@ class Realtime:
         self.write_lock = asyncio.Lock()
         self.locales: dict[str, str] = {}
         self.sessions: dict[str, str] = {}
+        self.sim: Any = None  # the SimBridge, once started
         self.sio.on("connect", self.connect)
         self.sio.on("viewport:set", self.viewport)
         self.sio.on("stroke:add", self.add)
@@ -103,6 +104,17 @@ class Realtime:
                 await self.sio.leave_room(sid, name)
             for name in enter:
                 await self.sio.enter_room(sid, name)
+            if self.sim is not None:
+                # world:snapshot for every chunk this client has just started watching.
+                size = self.chunk_size
+                for name in enter:
+                    cx, cy = (int(part) for part in name.rsplit(":", 2)[1:])
+                    entities = self.sim.entities_in(
+                        payload.canvas_id, cx * size, cy * size, (cx + 1) * size, (cy + 1) * size
+                    )
+                    await self.sio.emit(
+                        "world:snapshot", {"cx": cx, "cy": cy, "entities": entities}, to=sid
+                    )
             return {"ok": True, "lastSeq": canvas["stroke_count"]}
 
         return await self.guarded(sid, "Viewport update", handle)

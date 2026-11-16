@@ -74,3 +74,69 @@ class EntityRepo:
         return self.db.execute(
             "SELECT count(*) FROM entity WHERE canvas_id=? AND died_at IS NULL", (canvas_id,)
         ).fetchone()[0]
+
+    def sim_rows(self, canvas_id: str | None = None, entity_id: str | None = None) -> list[dict[str, Any]]:
+        """Living entities in the shape the simulation loads."""
+        where, args = ["died_at IS NULL"], []
+        if canvas_id:
+            where.append("canvas_id=?"); args.append(canvas_id)
+        if entity_id:
+            where.append("id=?"); args.append(entity_id)
+        rows = self.db.execute(
+            f"SELECT * FROM entity WHERE {' AND '.join(where)} ORDER BY born_at, id", args
+        )
+        return [
+            {
+                "id": row["id"], "canvas": row["canvas_id"], "type": row["archetype"],
+                "label": json.loads(row["label"] or "{}"), "x": row["x"], "y": row["y"],
+                "facing": row["facing"], "state": row["state"], "hp": row["hp"],
+                "hunger": row["hunger"], "thirst": row["thirst"], "energy": row["energy"],
+                "params": json.loads(row["params"] or "{}"), "parent_id": row["parent_id"],
+                "bound_to": row["bound_to"], "sprite_id": row["sprite_id"],
+            }  # fmt: skip
+            for row in rows
+        ]
+
+    def save_snapshot(self, rows: list[dict[str, Any]]) -> None:
+        """Live state from the simulation, in one transaction."""
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            self.db.executemany(
+                "UPDATE entity SET x=?, y=?, vx=?, vy=?, facing=?, state=?, hp=?, hunger=?,"
+                " thirst=?, energy=?, bound_to=?,"
+                " params=json_set(params, '$.data', json(?), '$.age', ?)"
+                " WHERE id=? AND died_at IS NULL",
+                [
+                    (r["x"], r["y"], r["vx"], r["vy"], r["facing"], r["state"], r["hp"], r["hunger"],
+                     r["thirst"], r["energy"], r["bound_to"],
+                     json.dumps(r["data"], ensure_ascii=False), r["age"], r["id"])
+                    for r in rows
+                ],  # fmt: skip
+            )
+            self.db.execute("COMMIT")
+        except BaseException:
+            self.db.execute("ROLLBACK")
+            raise
+
+    def mark_dead(self, entity_id: str, x: float, y: float) -> dict[str, Any] | None:
+        """Record the death; returns canvas, origin and the strokes the entity was made of."""
+        row = self.db.execute(
+            "SELECT canvas_id, origin_x, origin_y FROM entity WHERE id=? AND died_at IS NULL",
+            (entity_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        self.db.execute(
+            "UPDATE entity SET died_at=?, death_x=?, death_y=?, state='dead' WHERE id=?",
+            (now_ms(), x, y, entity_id),
+        )
+        seqs = [
+            r[0]
+            for r in self.db.execute(
+                "SELECT seq FROM stroke_fate WHERE canvas_id=? AND entity_id=? AND fate='consumed'"
+                " ORDER BY seq",
+                (row["canvas_id"], entity_id),
+            )
+        ]
+        return {"canvas": row["canvas_id"], "seqs": seqs,
+                "dx": x - (row["origin_x"] or x), "dy": y - (row["origin_y"] or y)}  # fmt: skip

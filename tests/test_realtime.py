@@ -74,7 +74,10 @@ def test_viewport_strokes_limits_and_errors(client: TestClient, application: Fas
         assert (await realtime.add("a", stroke)) == saved
         assert (await realtime.add("a", stroke)) == saved
         emitted = [call.args[0] for call in realtime.sio.emit.call_args_list]
-        assert emitted == ["stroke:new"]
+        # Each newly watched chunk gets a world:snapshot; the stroke goes out once.
+        assert emitted == ["world:snapshot", "world:snapshot", "stroke:new"]
+        snapshot = realtime.sio.emit.call_args_list[0]
+        assert snapshot.args[1] == {"cx": 2, "cy": 4, "entities": []} and snapshot.kwargs == {"to": "a"}
         sent = realtime.sio.emit.call_args
         assert sent.kwargs == {"room": "world:2:4", "skip_sid": "a"}
         for _ in range(30):
@@ -101,6 +104,8 @@ def test_real_socketio_protocol_and_payload_limit(
         ws.send_text("40")
         assert ws.receive_text().startswith("40{")
         ws.send_text("421" + json.dumps(["viewport:set", view([[0, 0]], canvas)]))
+        snapshot = json.loads(ws.receive_text()[2:])
+        assert snapshot == ["world:snapshot", {"cx": 0, "cy": 0, "entities": []}]
         assert json.loads(ws.receive_text()[3:])[0]["ok"]
         ws.send_text("422" + json.dumps(["stroke:add", payload(canvas)]))
         assert json.loads(ws.receive_text()[3:])[0]["seq"] == 1

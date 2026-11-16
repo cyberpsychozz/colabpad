@@ -25,7 +25,9 @@ def test_canvas_and_chunk_contract(
     assert world["limits"]["brushWidthMin"] == 1 and len(world["palette"]) == 8
 
     empty = client.get("/api/canvases/world/chunks/0/0").json()
-    assert empty == {"strokes": [], "fates": [], "entities": [], "lastSeq": 0, "tick": 0}
+    assert empty == {
+        "strokes": [], "fates": [], "entities": [], "fossils": [], "lastSeq": 0, "tick": 0,
+    }  # fmt: skip
     for _ in range(3):
         add_stroke()
     add_stroke(points=[[1500, 30, 0.5], [1600, 40, 0.5]])

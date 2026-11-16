@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     db_path: str = ""
     config_dir: Path = Path(__file__).parent.parent / "config"
     public_url: str = "http://localhost:8000"
+    # process: the world runs in its own process. inline: stepped by tests. off: no world.
+    sim_mode: str = Field("process", pattern="^(process|inline|off)$")
     vlm_api_key: str = ""
     yookassa_shop_id: str = ""
     yookassa_secret_key: str = ""
