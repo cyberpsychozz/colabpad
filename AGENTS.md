@@ -2,6 +2,8 @@
 
 You are rebuilding **collabpad.ru**, a small no-undo collaborative drawing board, into a **shared play world where drawings come alive**. You work **inside the existing repository**, on a new branch. The old code is disposable. This brief is self-contained and replaces the repo's old `AGENTS.md`.
 
+> **Work is in progress. Before doing anything, read [`docs/agent/handoff.md`](docs/agent/handoff.md):** what is done, what is left, how to run it, and decisions that differ from this brief. Keep it up to date when you finish a task. Step 0 notes are in `docs/agent/step0-notes.md`.
+
 Background documents (in Russian), copied into `docs/`:
 - `docs/CollabPad Бизнес-гипотеза.docx`: why, for whom, pricing.
 - `docs/CollabPad Архитектура и ТЗ.docx` (with spaces): the full TZ, with diagrams, wireframes and the task plan. Don't confuse it with the **old** `docs/CollabPad_Архитектура_и_ТЗ.docx` (with underscores), which is legacy and gets deleted.
