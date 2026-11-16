@@ -2,6 +2,7 @@
 import { renderStroke, strokeBounds } from './draw.js';
 
 export const chunkKey = (cx, cy) => `${cx}:${cy}`;
+const FOSSIL_GREY = '#969696';
 
 export class ChunkStore {
   // createTile(pixels) returns a square canvas; injected so tests can run without a DOM.
@@ -17,7 +18,7 @@ export class ChunkStore {
   ensure(cx, cy) {
     let chunk = this.get(cx, cy);
     if (!chunk) {
-      chunk = { cx, cy, strokes: new Map(), fates: new Map(), watermark: 0, loaded: false, tile: null, scale: 0, dirty: true, drawnSeq: 0 };
+      chunk = { cx, cy, strokes: new Map(), fates: new Map(), fossils: new Map(), watermark: 0, loaded: false, tile: null, scale: 0, dirty: true, drawnSeq: 0 };
       this.chunks.set(chunkKey(cx, cy), chunk);
     }
     return chunk;
@@ -31,9 +32,10 @@ export class ChunkStore {
   }
 
   // A chunk fetch: strokes after the previous watermark, current fates, new watermark.
-  merge(cx, cy, { strokes, fates, lastSeq }) {
+  merge(cx, cy, { strokes, fates, lastSeq, fossils = [] }) {
     const chunk = this.get(cx, cy);
     if (!chunk) return;
+    for (const fossil of fossils) this.#fossil(chunk, fossil);
     for (const stroke of strokes) this.#put(chunk, stroke);
     chunk.fates = new Map(fates.map(fate => [fate.seq, fate]));
     chunk.watermark = Math.max(chunk.watermark, lastSeq);
@@ -76,6 +78,22 @@ export class ChunkStore {
     return changed;
   }
 
+  // A fossil lies where its entity died: its strokes, grey, shifted from where they were drawn.
+  addFossil(fossil) {
+    const chunk = this.get(Math.floor(fossil.x / this.size), Math.floor(fossil.y / this.size));
+    if (!chunk || chunk.fossils.has(fossil.entityId)) return false;
+    this.#fossil(chunk, fossil);
+    this.#dirtyAround(chunk);
+    return true;
+  }
+
+  #fossil(chunk, { entityId, dx, dy, strokes }) {
+    chunk.fossils.set(entityId, strokes.map(stroke => {
+      const moved = { ...stroke, color: FOSSIL_GREY, points: stroke.points.map(([x, y, p]) => [x + dx, y + dy, p]) };
+      return { ...moved, box: strokeBounds(moved) };
+    }));
+  }
+
   hasStrokes() {
     for (const chunk of this.chunks.values()) if (chunk.strokes.size) return true;
     return false;
@@ -108,6 +126,21 @@ export class ChunkStore {
       }
       strokes.sort((a, b) => a.seq - b.seq);
       this.#paint(chunk, strokes);
+      // Fossils from this chunk and its neighbours, over the static strokes.
+      const fossils = [];
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          for (const parts of this.get(cx + dx, cy + dy)?.fossils.values() || []) {
+            for (const stroke of parts) {
+              const [bx0, by0, bx1, by1] = stroke.box;
+              if (bx1 > x0 && bx0 < x1 && by1 > y0 && by0 < y1) fossils.push(stroke);
+            }
+          }
+        }
+      }
+      const drawn = chunk.drawnSeq;
+      this.#paint(chunk, fossils);
+      chunk.drawnSeq = drawn;
       chunk.dirty = false;
     }
     return chunk.tile;

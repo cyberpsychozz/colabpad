@@ -7,7 +7,7 @@ import { drawGoo } from './goo.js';
 const OUTSIDE = '#e7e4da', PAPER = '#ffffff', INK = '#252722';
 
 // Returns true while something is animating and another frame is needed.
-export function drawWorld(ctx, { camera, store, dpr, pending = [], lasso = null, entities = null, goos = null, now = 0 }) {
+export function drawWorld(ctx, { camera, store, dpr, pending = [], lasso = null, entities = null, goos = null, vfx = null, driving = null, now = 0 }) {
   const { x, y, z, viewW, viewH, bounds, chunkSize: size } = camera;
   const k = z * dpr;
   const px = wx => Math.round((wx - x) * k), py = wy => Math.round((wy - y) * k);
@@ -31,7 +31,8 @@ export function drawWorld(ctx, { camera, store, dpr, pending = [], lasso = null,
     }
   }
 
-  let animating = entities ? drawEntities(ctx, { camera, entities, dpr, now }) : false;
+  let animating = entities ? drawEntities(ctx, { camera, entities, dpr, now, driving }) : false;
+  if (vfx?.draw(ctx, { camera, dpr, now })) animating = true;
 
   ctx.setTransform(k, 0, 0, k, -x * k, -y * k);
   for (const stroke of pending) renderStroke(ctx, stroke);

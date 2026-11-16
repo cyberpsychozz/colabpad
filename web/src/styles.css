@@ -1293,3 +1293,50 @@ footer {
   background:transparent;
   color:var(--muted)
 }
+
+/* ---- driving ---- */
+.control-bar {
+  position:absolute;
+  left:50%;
+  top:12px;
+  transform:translateX(-50%);
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:6px 6px 6px 16px;
+  border:1px solid var(--ink);
+  border-radius:999px;
+  background:var(--accent);
+  font-size:14px;
+  font-weight:600;
+  z-index:2
+}
+.control-bar .button {
+  min-height:32px;
+  padding:6px 14px;
+  background:#fff
+}
+.stick {
+  position:absolute;
+  right:20px;
+  bottom:24px;
+  width:112px;
+  height:112px;
+  border-radius:50%;
+  border:2px solid rgba(37,39,34,.35);
+  background:rgba(255,255,255,.7);
+  display:none;
+  place-items:center;
+  touch-action:none
+}
+.stick-knob {
+  width:46px;
+  height:46px;
+  border-radius:50%;
+  background:var(--ink)
+}
+@media (pointer:coarse) {
+  .stick:not([hidden]) {
+    display:grid
+  }
+}

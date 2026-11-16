@@ -71,6 +71,24 @@ test('fated strokes are not painted, and scale changes repaint', () => {
   assert.deepEqual(drawn(sharp), []);
 });
 
+test('fossils are painted grey and shifted, into every tile they reach', () => {
+  const painted = [];
+  const tile = pixels => { const t = { width: pixels, height: pixels }; const ctx = { tile: t, setTransform() {}, clearRect() {} }; t.getContext = () => ctx; return t; };
+  const store = new ChunkStore({ size: 1024, createTile: tile, render: (ctx, s) => painted.push([ctx.tile, s.seq, s.color, s.points[0][0]]) });
+  store.retain([[0, 0], [1, 0]]);
+  const body = stroke(3, 0, 0, [[100, 100, 0.5], [120, 100, 0.5]], 20);
+  store.merge(0, 0, page([body], 3, [{ seq: 3, fate: 'fossil', entityId: 'e' }]));
+  store.merge(1, 0, page([], 3));
+  store.merge(1, 0, { strokes: [], fates: [], lastSeq: 3, fossils: [{ entityId: 'e', x: 1030, y: 100, dx: 920, dy: 0, strokes: [body] }] });
+  const left = store.tile(0, 0), right = store.tile(1, 0);
+  // The original strokes are hidden; the fossil shows at the death place, bleeding over the border.
+  assert.deepEqual(painted.filter(p => p[0] === right).map(p => p.slice(1)), [[3, '#969696', 1020]]);
+  assert.deepEqual(painted.filter(p => p[0] === left).map(p => p.slice(1)), [[3, '#969696', 1020]]);
+  assert.equal(store.addFossil({ entityId: 'e', x: 1030, y: 100, dx: 920, dy: 0, strokes: [body] }), false);
+  assert.equal(store.addFossil({ entityId: 'f', x: 500, y: 500, dx: 0, dy: 0, strokes: [body] }), true);
+  assert.equal(store.addFossil({ entityId: 'g', x: 9000, y: 500, dx: 0, dy: 0, strokes: [body] }), false);
+});
+
 test('retain drops chunks outside the list, live strokes for untracked chunks are ignored', () => {
   const { store } = setup();
   store.retain([[0, 0], [1, 0]]);

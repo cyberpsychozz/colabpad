@@ -6,14 +6,18 @@ import { EntityStore } from '../entities.js';
 import { pointerPoint, preparePoints, simplify, splitAtChunks, splitStroke } from '../draw.js';
 import { has, onLocaleChange, t } from '../i18n/i18n.js';
 import { drawWorld } from '../render/strokes.js';
+import { Vfx } from '../render/vfx.js';
 import { WorldSync } from '../socket.js';
 import { track } from '../analytics.js';
 import { createAlive } from './alive.js';
+import { createControl } from './control.js';
 import { brand, languageSwitch, refreshLanguageSwitch } from './chrome.js';
 import { element, localize, toast } from './dom.js';
 import { createTools } from './tools.js';
 
 const LASSO_MAX_POINTS = 500;
+const DRAG_SEND_MS = 220;      // under the server's 5 interactions a second
+const DOUBLE_CLICK_MS = 350;
 
 export async function openWorld(root, canvasId) {
   let alive = true;
@@ -50,14 +54,15 @@ export async function openWorld(root, canvasId) {
     size: limits.chunkSize,
     loadImage: url => { const image = new Image(); image.onload = () => schedule(); image.src = url; return image; },
   });
+  const vfx = new Vfx();
   let connection = { connected: false, pending: 0 };
-  let active = null, lasso = null, frame = 0, drewHere = false, started = false;
+  let active = null, lasso = null, frame = 0, drewHere = false, started = false, lastFrame = performance.now();
 
   const sync = new WorldSync({
     canvasId, store,
     onState(state) { connection = state; refreshText(); schedule(); },
     onChange: () => schedule(),
-    onEvent: (name, data) => alivePanel.onEvent(name, data),
+    onEvent: (name, data) => worldEvent(name, data),
     onChunk: (cx, cy, data) => entities.setChunk(cx, cy, data.entities),
     onError(code) { toast(t(has(`err.${code}`) ? `err.${code}` : 'canvas.unsaved')); schedule(); },
   });
@@ -77,6 +82,24 @@ export async function openWorld(root, canvasId) {
     clearLasso: () => { lasso = null; },
   });
   localize(lassoPanel);
+  const control = createControl({ sync, stage, entities, onChange: () => schedule() });
+  localize(stage);
+
+  // Everything the server tells us about the living world.
+  function worldEvent(name, data) {
+    const now = performance.now();
+    if (name === 'world:delta') entities.applyDelta(data, now);
+    else if (name === 'world:snapshot') {
+      if (store.get(data.cx, data.cy)) entities.setChunk(data.cx, data.cy, data.entities);
+    } else if (name === 'world:event') {
+      if (data.type === 'fossil') store.addFossil(data.fossil);
+      else if (data.type === 'death') { entities.die(data.id, data.fossil, now); vfx.add(data, now); }
+      else if (data.type !== 'spawn') vfx.add(data, now);
+      if (data.type === 'spawn') alivePanel.onEvent(name, data);
+    } else if (name.startsWith('control:')) control.onEvent(name, data);
+    else alivePanel.onEvent(name, data);
+    schedule();
+  }
 
   function refreshText() {
     const { connected, pending } = connection;
@@ -94,9 +117,22 @@ export async function openWorld(root, canvasId) {
   function render() {
     frame = 0;
     const pending = active ? [...sync.outbox, active] : sync.outbox;
-    const animating = drawWorld(ctx, { camera, store, dpr: dpr(), pending, lasso, entities, goos: alivePanel.goos, now: performance.now() });
+    const now = performance.now();
+    const moving = entities.advance(Math.min(0.1, (now - lastFrame) / 1000), now);
+    lastFrame = now;
+    // While driving, the camera keeps the vehicle in view.
+    const vehicle = control.vehicleId && entities.entities.get(control.vehicleId);
+    if (vehicle) {
+      const [sx, sy] = camera.toScreen(vehicle.rx, vehicle.ry);
+      const marginX = camera.viewW * 0.3, marginY = camera.viewH * 0.3;
+      const dx = sx < marginX ? sx - marginX : sx > camera.viewW - marginX ? sx - (camera.viewW - marginX) : 0;
+      const dy = sy < marginY ? sy - marginY : sy > camera.viewH - marginY ? sy - (camera.viewH - marginY) : 0;
+      if (dx || dy) { camera.panBy(-dx, -dy); cameraChanged(); }
+    }
+    const animating = drawWorld(ctx, { camera, store, dpr: dpr(), pending, lasso, entities, goos: alivePanel.goos, vfx, driving: control.vehicleId, now });
     alivePanel.reposition();
-    if (animating) schedule();
+    control.refresh();
+    if (animating || moving) schedule();
     if (!started && store.allLoaded(wanted().filter(c => c.visible).map(c => [c.cx, c.cy]))) {
       started = true;
       loading.hidden = true;
@@ -133,7 +169,9 @@ export async function openWorld(root, canvasId) {
 
   // ---- pointer input: one pointer draws, lassoes or pans; two pointers pan and pinch.
   const pointers = new Map();
-  let mode = null, spaceDown = false, pinch = null;
+  let mode = null, spaceDown = false, pinch = null, grab = null, lastClick = { id: null, at: 0 };
+  const canPlay = config.role === 'editor' || config.role === 'player';
+  const draggable = new Set(['food', 'explosive', 'remote', 'doodle']);
   const local = event => { const rect = canvas.getBoundingClientRect(); return [event.clientX - rect.left, event.clientY - rect.top]; };
   const measure = () => {
     const [a, b] = [...pointers.values()];
@@ -184,7 +222,12 @@ export async function openWorld(root, canvasId) {
     }
     if (pointers.size > 2) return;
     const hand = tools.state.tool === 'hand' || spaceDown || event.button === 1;
-    if (hand || !canEdit || config.frozen) mode = 'pan';
+    // With the hand, a press on something alive plays with it instead of panning.
+    const touched = hand && canPlay && !spaceDown && event.button === 0 ? entities.at(...camera.toWorld(...local(event))) : null;
+    if (touched) {
+      mode = 'entity';
+      grab = { id: touched.id, type: touched.type, start: local(event), moved: false, sentAt: 0 };
+    } else if (hand || !canEdit || config.frozen) mode = 'pan';
     else if (event.button !== 0) mode = null;
     else if (tools.state.tool === 'draw') {
       mode = 'draw';
@@ -206,7 +249,14 @@ export async function openWorld(root, canvasId) {
     pointers.set(event.pointerId, now);
     if (mode === 'draw' && active) capture(event, active.points);
     else if (mode === 'lasso' && lasso) capture(event, lasso.points);
-    else if (mode === 'pan') { camera.panBy(now[0] - previous[0], now[1] - previous[1]); cameraChanged(); }
+    else if (mode === 'entity' && grab) {
+      if (!grab.moved && Math.hypot(now[0] - grab.start[0], now[1] - grab.start[1]) > 6) {
+        grab.moved = true;
+        // Only some things can be carried; anything else lets the press become a pan.
+        if (!draggable.has(grab.type)) { mode = 'pan'; grab = null; return; }
+      }
+      if (grab.moved) dragTo(camera.toWorld(...now), false);
+    } else if (mode === 'pan') { camera.panBy(now[0] - previous[0], now[1] - previous[1]); cameraChanged(); }
     else if (mode === 'pinch' && pointers.size === 2) {
       const next = measure();
       camera.panBy(next.x - pinch.x, next.y - pinch.y);
@@ -222,9 +272,39 @@ export async function openWorld(root, canvasId) {
       if (event.type === 'pointerup') capture(event, active.points);
       finishStroke();
     } else if (mode === 'lasso' && lasso) finishLasso();
+    else if (mode === 'entity' && grab) {
+      const point = camera.toWorld(...local(event));
+      if (grab.moved) dragTo(point, true);
+      else click(grab, point);
+      grab = null;
+    }
     // Lifting one of two fingers keeps panning with the other.
     mode = mode === 'pinch' && pointers.size === 1 ? 'pan' : pointers.size ? mode : null;
     schedule();
+  }
+
+  function dragTo([x, y], last) {
+    const entity = entities.entities.get(grab.id);
+    if (!entity) return;
+    // Show it under the cursor at once; the server confirms a few times a second.
+    entity.x = entity.rx = x; entity.y = entity.ry = y;
+    const now = performance.now();
+    if (last || now - grab.sentAt >= DRAG_SEND_MS) {
+      grab.sentAt = now;
+      sync.request('entity:interact', { entityId: grab.id, action: 'drag', to: [x, y] }).catch(() => {});
+    }
+    schedule();
+  }
+
+  // A click pets (or takes a remote); a double click gives a shove away from the cursor.
+  function click(target, point) {
+    const now = performance.now();
+    if (target.type === 'remote') { control.claim(target.id); return; }
+    const double = lastClick.id === target.id && now - lastClick.at < DOUBLE_CLICK_MS;
+    lastClick = { id: target.id, at: now };
+    sync.request('entity:interact', double
+      ? { entityId: target.id, action: 'push', to: point }
+      : { entityId: target.id, action: 'pet' }).catch(() => {});
   }
 
   function onWheel(event) {
@@ -253,7 +333,7 @@ export async function openWorld(root, canvasId) {
   window.addEventListener('beforeunload', beforeUnload);
   const observer = new ResizeObserver(resize);
   observer.observe(stage);
-  const stopLocale = onLocaleChange(() => { localize(page); refreshLanguageSwitch(page); tools.refresh(); alivePanel.refresh(); refreshText(); schedule(); });
+  const stopLocale = onLocaleChange(() => { localize(page); refreshLanguageSwitch(page); tools.refresh(); alivePanel.refresh(); control.refresh(); refreshText(); schedule(); });
 
   // Deep link first, else the server's spawn point.
   const rect = stage.getBoundingClientRect();
@@ -265,6 +345,8 @@ export async function openWorld(root, canvasId) {
 
   return () => {
     alive = false;
+    control.release();
+    control.destroy();
     sync.stop();
     alivePanel.destroy();
     cancelAnimationFrame(frame);

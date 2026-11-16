@@ -157,11 +157,11 @@ class SimBridge:
             await asyncio.sleep(0.5)
             if not self.transport.alive():
                 logger.error("Simulation process died; restarting")
-                self.restarts += 1
                 self.transport.stop()
                 self.transport = ProcessTransport(self.settings)
                 self.transport.start(self.deliver)
                 self.load()
+                self.restarts += 1  # counted once the new world is loaded
 
     async def sweep_leases(self) -> None:
         while True:

@@ -34,7 +34,8 @@ export class WorldSync {
     this.socket.on('stroke:fate', ({ seqs, fate, entityId }) => {
       if (!this.stopped && this.store.applyFate(seqs, fate, entityId)) this.onChange();
     });
-    for (const name of ['alive:goo', 'alive:progress', 'alive:choose', 'alive:failed', 'world:event']) {
+    for (const name of ['alive:goo', 'alive:progress', 'alive:choose', 'alive:failed', 'world:event',
+      'world:snapshot', 'world:delta', 'control:granted', 'control:revoked']) {
       this.socket.on(name, data => { if (!this.stopped) this.onEvent(name, data); });
     }
   }
@@ -51,6 +52,10 @@ export class WorldSync {
       });
     });
   }
+
+  // Fire-and-forget (control input) and request/reply (claims, interactions).
+  send(event, data) { if (this.socket.connected) this.socket.emit(event, data); }
+  request(event, data) { return this.ack(event, data); }
 
   // chunks: [[cx, cy], …], at most the server's limit.
   setViewport(chunks) {

@@ -96,5 +96,7 @@
   "err.CHOICE_EXPIRED": "Время выбора вышло",
   "err.CONTROL_TAKEN": "Сейчас рулит кто-то другой",
   "err.PAYLOAD_TOO_LARGE": "Сообщение слишком большое",
-  "err.NOT_JOINED": "Сначала подключись к миру"
+  "err.NOT_JOINED": "Сначала подключись к миру",
+  "control.someone": "кто-то",
+  "control.hint": "Рули: WASD или стрелки"
 }

@@ -94,5 +94,7 @@
   "err.CHOICE_EXPIRED": "The time to choose has run out",
   "err.CONTROL_TAKEN": "Someone else is driving right now",
   "err.PAYLOAD_TOO_LARGE": "The message is too large",
-  "err.NOT_JOINED": "Connect to the world first"
+  "err.NOT_JOINED": "Connect to the world first",
+  "control.someone": "someone",
+  "control.hint": "Drive with WASD or the arrow keys"
 }
