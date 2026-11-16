@@ -1,10 +1,9 @@
-"""Socket.IO events: canvas rooms, limits and durable stroke submission."""
+"""Socket.IO events: chunk subscriptions, limits and durable stroke submission."""
 
 import asyncio
 import json
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
 import socketio
@@ -12,17 +11,12 @@ from pydantic import ValidationError
 
 from app.config import GameConfig, Settings
 from app.errors import AppError, too_large, validation_error
-from app.models import JoinIn, StrokeIn, chunk_of
+from app.models import StrokeIn, ViewportIn, chunk_of
 from app.realtime.ratelimit import SlidingWindow
+from app.realtime.rooms import Rooms, room
 from app.repo import Repository
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class Member:
-    canvas_id: str
-    bounds: tuple[int, int]
 
 
 class Realtime:
@@ -30,8 +24,9 @@ class Realtime:
         self, settings: Settings, config: GameConfig, get_repo: Callable[[], Repository]
     ) -> None:
         self.settings = settings
-        self.chunk_size: int = config.limits["world"]["chunk_size"]
         self.get_repo = get_repo
+        self.chunk_size: int = config.limits["world"]["chunk_size"]
+        self.max_chunks: int = config.limits["viewport"]["max_chunks"]
         self.sio = socketio.AsyncServer(
             async_mode="asgi",
             cors_allowed_origins=settings.origins,
@@ -40,10 +35,11 @@ class Realtime:
             logger=False,
             engineio_logger=False,
         )
-        self.members: dict[str, Member] = {}
-        self.stroke_limit = SlidingWindow(settings.stroke_rate_limit)
+        self.rooms = Rooms()
+        self.stroke_limit = SlidingWindow(config.limits["stroke"]["rate"])
+        self.viewport_limit = SlidingWindow(config.limits["viewport"]["rate"])
         self.write_lock = asyncio.Lock()
-        self.sio.on("canvas:join", self.join)
+        self.sio.on("viewport:set", self.viewport)
         self.sio.on("stroke:add", self.add)
         self.sio.on("disconnect", self.disconnect)
 
@@ -54,35 +50,50 @@ class Realtime:
         ):
             raise too_large()
 
-    async def join(self, sid: str, data: Any) -> dict[str, Any]:
+    async def guarded(self, what: str, handler: Callable[[], Any]) -> dict[str, Any]:
         try:
-            self.check_size(data)
-            payload = JoinIn.model_validate(data)
-            canvas = self.get_repo().get_canvas(payload.canvas_id)
-            old = self.members.get(sid)
-            self.members[sid] = Member(
-                payload.canvas_id, (canvas["bounds_w"], canvas["bounds_h"])
-            )
-            if old and old.canvas_id != payload.canvas_id:
-                await self.sio.leave_room(sid, old.canvas_id)
-            await self.sio.enter_room(sid, payload.canvas_id)
-            return {"ok": True, "lastSeq": canvas["stroke_count"]}
+            return await handler()
         except ValidationError as exc:
             return validation_error(exc).body()
         except AppError as exc:
             return exc.body()
         except Exception:
-            logger.exception("Canvas join failed")
+            logger.exception("%s failed", what)
             return AppError("INTERNAL", "Ошибка сервера.", http_status=500).body()
 
-    async def add(self, sid: str, data: Any) -> dict[str, Any]:
-        try:
+    async def viewport(self, sid: str, data: Any) -> dict[str, Any]:
+        async def handle() -> dict[str, Any]:
             self.check_size(data)
-            member = self.members.get(sid)
+            if not self.viewport_limit.consume(sid):
+                raise AppError("RATE_LIMITED", "Подожди немного.", http_status=429)
+            payload = ViewportIn.model_validate(
+                data, context={"max_chunks": self.max_chunks}
+            )
+            canvas = self.get_repo().get_canvas(payload.canvas_id)
+            chunks = frozenset(
+                (cx, cy)
+                for cx, cy in payload.chunks
+                if cx * self.chunk_size < canvas["bounds_w"]
+                and cy * self.chunk_size < canvas["bounds_h"]
+            )
+            # Bookkeeping is synchronous; the awaits below only mirror it.
+            enter, leave = self.rooms.set_viewport(sid, payload.canvas_id, chunks)
+            for name in leave:
+                await self.sio.leave_room(sid, name)
+            for name in enter:
+                await self.sio.enter_room(sid, name)
+            return {"ok": True, "lastSeq": canvas["stroke_count"]}
+
+        return await self.guarded("Viewport update", handle)
+
+    async def add(self, sid: str, data: Any) -> dict[str, Any]:
+        async def handle() -> dict[str, Any]:
+            self.check_size(data)
+            canvas_id = self.rooms.canvas_of(sid)
             if (
-                not member
+                canvas_id is None
                 or not isinstance(data, dict)
-                or data.get("canvasId") != member.canvas_id
+                or data.get("canvasId") != canvas_id
             ):
                 raise AppError("NOT_JOINED", "Сначала подключись к холсту.")
             if not self.stroke_limit.consume(sid):
@@ -91,32 +102,33 @@ class Realtime:
                     "Слишком много штрихов. Подожди немного.",
                     http_status=429,
                 )
+            canvas = self.get_repo().get_canvas(canvas_id)
+            bounds = (canvas["bounds_w"], canvas["bounds_h"])
             stroke = StrokeIn.model_validate(
                 data,
                 context={
                     "settings": self.settings,
-                    "bounds": member.bounds,
+                    "bounds": bounds,
                     "chunk": self.chunk_size,
                 },
             )
+            chunk = chunk_of(stroke.points, self.chunk_size, bounds)
+            assert chunk is not None  # checked by StrokeIn
             async with self.write_lock:
-                chunk = chunk_of(stroke.points, self.chunk_size, member.bounds)
-                assert chunk is not None  # checked by StrokeIn
                 saved, inserted = self.get_repo().insert_stroke(stroke, chunk)
                 # The transaction has committed before any network await.
                 if inserted:
                     await self.sio.emit(
-                        "stroke:new", saved, room=member.canvas_id, skip_sid=sid
+                        "stroke:new",
+                        saved,
+                        room=room(canvas_id, (saved["cx"], saved["cy"])),
+                        skip_sid=sid,
                     )
-            return {"ok": True, "seq": saved["seq"]}
-        except ValidationError as exc:
-            return validation_error(exc).body()
-        except AppError as exc:
-            return exc.body()
-        except Exception:
-            logger.exception("Stroke submission failed")
-            return AppError("INTERNAL", "Ошибка сервера.", http_status=500).body()
+            return {"ok": True, "seq": saved["seq"], "cx": saved["cx"], "cy": saved["cy"]}
+
+        return await self.guarded("Stroke submission", handle)
 
     async def disconnect(self, sid: str, reason: str | None = None) -> None:
-        self.members.pop(sid, None)
+        self.rooms.drop(sid)
         self.stroke_limit.buckets.pop(sid, None)
+        self.viewport_limit.buckets.pop(sid, None)

@@ -50,8 +50,22 @@ class WireModel(BaseModel):
     )
 
 
-class JoinIn(WireModel):
+class ViewportIn(WireModel):
+    """Validation context: max_chunks."""
+
     canvas_id: str = Field(pattern=CANVAS_ID)
+    chunks: list[tuple[int, int]]
+
+    @field_validator("chunks")
+    @classmethod
+    def chunk_list(
+        cls, chunks: list[tuple[int, int]], info: ValidationInfo
+    ) -> list[tuple[int, int]]:
+        if len(chunks) > (info.context or {}).get("max_chunks", 12):
+            raise ValueError("Too many chunks")
+        if any(cx < 0 or cy < 0 for cx, cy in chunks):
+            raise ValueError("Negative chunk index")
+        return chunks
 
 
 class StrokeIn(WireModel):

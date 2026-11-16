@@ -21,10 +21,12 @@ class Settings(BaseSettings):
     vlm_api_key: str = ""
     yookassa_shop_id: str = ""
     yookassa_secret_key: str = ""
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:8000,http://127.0.0.1:8000"
+    )
     max_points_per_stroke: int = Field(2000, ge=2)
     max_payload_bytes: int = Field(65536, ge=1024)
-    stroke_rate_limit: str = "30/10"
     brush_width_min: float = Field(1, gt=0)
     brush_width_max: float = Field(40, gt=0)
     simplify_epsilon: float = Field(0.5, ge=0)
@@ -37,8 +39,6 @@ class Settings(BaseSettings):
             self.db_path = str(self.data_dir / "collabpad.db")
         if self.brush_width_max < self.brush_width_min:
             raise ValueError("BRUSH_WIDTH_MAX must be >= BRUSH_WIDTH_MIN")
-        if not re.fullmatch(r"[1-9]\d*/[1-9]\d*", self.stroke_rate_limit):
-            raise ValueError("Rate limits must be positive count/seconds")
         if not self.colors or any(
             not re.fullmatch(r"#[0-9A-Fa-f]{6}", color) for color in self.colors
         ):

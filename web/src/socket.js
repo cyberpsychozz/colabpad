@@ -1,38 +1,41 @@
+// Resilient world sync: an outbox with acknowledged delivery, an epoch guard
+// against stale replies, and reconnect -> resubscribe -> refetch of every
+// subscribed chunk from its watermark (the lastSeq of its previous fetch).
 import { io } from 'socket.io-client';
+import { getChunk } from './api.js';
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const BACKOFF = [1000, 2000, 4000];
 
-export class CanvasSync {
-  constructor({ canvas, onStroke, onReset, onState, onError,
-    transport, fetchStrokes, sleep = wait }) {
-    Object.assign(this, { canvas, onStroke, onReset, onState, onError, fetchStrokes, sleep });
+export class WorldSync {
+  constructor({ canvasId, store, onState, onError, onChange = () => {},
+    transport, fetchChunk = getChunk, sleep = wait }) {
+    Object.assign(this, { canvasId, store, onState, onError, onChange, fetchChunk, sleep });
     this.socket = transport || io({ autoConnect: false });
     this.outbox = [];
-    this.saved = new Map(canvas.strokes.map(stroke => [stroke.seq, stroke]));
-    this.lastSeq = Math.max(0, ...this.saved.keys());
-    this.ready = false;
-    this.busy = false;
+    this.wanted = [];
+    this.ready = false;       // subscribed and caught up since the last connect
+    this.busy = false;        // an outbox flush is running
+    this.pumping = false;     // a viewport update is running
+    this.viewportDirty = false;
+    this.refetchAll = false;
     this.stopped = false;
     this.epoch = 0;
-    this.socket.on('connect', () => this.resync());
+    this.socket.on('connect', () => {
+      this.epoch++; this.ready = false; this.refetchAll = true;
+      this.state();
+      this.requestViewport();
+    });
     this.socket.on('disconnect', () => { this.epoch++; this.ready = false; this.state(); });
     this.socket.on('connect_error', () => { this.ready = false; this.state(); });
-    this.socket.on('stroke:new', stroke => this.confirm(stroke));
+    this.socket.on('stroke:new', stroke => {
+      if (!this.stopped && this.store.addStroke(stroke)) this.onChange();
+    });
   }
 
   start() { this.socket.connect(); }
   stop() { this.stopped = true; this.epoch++; this.ready = false; this.socket.disconnect(); }
-  confirmed() { return [...this.saved.values()].sort((a, b) => a.seq - b.seq); }
   state() { if (!this.stopped) this.onState({ connected: this.ready, pending: this.outbox.length }); }
-
-  confirm(stroke) {
-    if (this.stopped) return;
-    if (!this.saved.has(stroke.seq)) {
-      this.saved.set(stroke.seq, stroke);
-      this.lastSeq = Math.max(this.lastSeq, stroke.seq);
-      this.onStroke(stroke);
-    }
-  }
 
   ack(event, data) {
     return new Promise((resolve, reject) => {
@@ -43,37 +46,59 @@ export class CanvasSync {
     });
   }
 
-  async resync() {
-    const epoch = ++this.epoch;
-    this.ready = false;
-    this.state();
-    for (let retry = 0; !this.stopped && this.socket.connected && epoch === this.epoch; retry++) {
-      try {
-        const join = await this.ack('canvas:join', { canvasId: this.canvas.id });
-        if (epoch !== this.epoch || this.stopped) return;
-        if (!join.ok) {
-          if (join.error.code !== 'INTERNAL' && join.error.code !== 'RATE_LIMITED') {
-            this.onError(join.error.code); return;
+  // chunks: [[cx, cy], …], at most the server's limit.
+  setViewport(chunks) {
+    const same = chunks.length === this.wanted.length
+      && chunks.every(([cx, cy], i) => this.wanted[i][0] === cx && this.wanted[i][1] === cy);
+    if (same) return;
+    this.wanted = chunks;
+    this.requestViewport();
+  }
+
+  requestViewport() {
+    this.viewportDirty = true;
+    if (!this.pumping) this.pump();
+  }
+
+  // One loop owns the subscription: enter the rooms first, then fetch, so nothing
+  // committed in between can be missed. Changes made meanwhile run another round.
+  async pump() {
+    this.pumping = true;
+    let failures = 0;
+    try {
+      while (this.viewportDirty && !this.stopped && this.socket.connected) {
+        const epoch = this.epoch, full = this.refetchAll, chunks = this.wanted;
+        this.viewportDirty = false; this.refetchAll = false;
+        const current = () => epoch === this.epoch && !this.stopped;
+        try {
+          const reply = await this.ack('viewport:set', { canvasId: this.canvasId, chunks });
+          if (!current()) { this.refetchAll = true; this.viewportDirty = true; continue; }
+          if (!reply.ok) {
+            const code = reply.error?.code || 'INTERNAL';
+            if (code !== 'RATE_LIMITED' && code !== 'INTERNAL') { this.onError(code); return; }
+            throw new Error(code);
           }
-          throw new Error(join.error.code);
+          this.store.retain(chunks);
+          await Promise.all(chunks.filter(([cx, cy]) => full || !this.store.isLoaded(cx, cy)).map(async ([cx, cy]) => {
+            const data = await this.fetchChunk(this.canvasId, cx, cy, this.store.watermark(cx, cy));
+            if (current()) this.store.merge(cx, cy, data);
+          }));
+          if (!current()) { this.refetchAll = true; this.viewportDirty = true; continue; }
+          failures = 0;
+          this.onChange();
+          if (!this.ready) { this.ready = true; this.state(); this.flush(); }
+          // Stay under the server's viewport rate limit when panning continuously.
+          if (this.viewportDirty) await this.sleep(300);
+        } catch {
+          this.refetchAll ||= full; this.viewportDirty = true;
+          if (!current() || !this.socket.connected) continue;
+          failures++;
+          if (failures === 4) this.onError('INTERNAL');
+          await this.sleep(BACKOFF[Math.min(failures - 1, 2)]);
         }
-        // A live event may race the initial snapshot, leaving a gap below max seq.
-        // Fetch from the contiguous prefix so an observed later seq cannot hide it.
-        let contiguous = 0;
-        while (this.saved.has(contiguous + 1)) contiguous++;
-        const { strokes } = await this.fetchStrokes(this.canvas.id, contiguous);
-        if (epoch !== this.epoch || this.stopped) return;
-        for (const stroke of strokes) this.saved.set(stroke.seq, stroke);
-        this.lastSeq = Math.max(this.lastSeq, ...this.saved.keys());
-        this.onReset(this.confirmed());
-        this.ready = true;
-        this.state();
-        this.flush();
-        return;
-      } catch {
-        if (retry === 3) this.onError('INTERNAL');
-        await this.sleep([1000, 2000, 4000][Math.min(retry, 2)]);
       }
+    } finally {
+      this.pumping = false;
     }
   }
 
@@ -94,13 +119,13 @@ export class CanvasSync {
           const reply = await this.ack('stroke:add', stroke);
           if (this.stopped) return;
           if (reply.ok) {
-            this.confirm({ ...stroke, seq: reply.seq, createdAt: Date.now() });
-            this.outbox.shift(); failures = 0; this.state();
+            this.store.addStroke({ ...stroke, seq: reply.seq, cx: reply.cx, cy: reply.cy, createdAt: Date.now() });
+            this.outbox.shift(); failures = 0; this.state(); this.onChange();
             continue;
           }
           const code = reply.error?.code || 'INTERNAL';
           if (code === 'RATE_LIMITED') { await this.sleep(2000); continue; }
-          if (code === 'NOT_JOINED') { this.ready = false; this.resync(); break; }
+          if (code === 'NOT_JOINED') { this.ready = false; this.refetchAll = true; this.requestViewport(); break; }
           if (code === 'INTERNAL') throw new Error(code);
           this.outbox.shift();
           this.onError(code);
@@ -109,7 +134,7 @@ export class CanvasSync {
           if (!this.ready || !this.socket.connected || this.stopped) break;
           failures++;
           if (failures === 4) this.onError('INTERNAL');
-          await this.sleep([1000, 2000, 4000][Math.min(failures - 1, 2)]);
+          await this.sleep(BACKOFF[Math.min(failures - 1, 2)]);
         }
       }
     } finally {

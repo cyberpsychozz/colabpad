@@ -37,3 +37,5 @@ export function t(key, params = {}) {
   }
   return text.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match));
 }
+
+export const has = key => key in catalogs.en;
