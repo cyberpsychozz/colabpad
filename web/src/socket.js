@@ -8,9 +8,9 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const BACKOFF = [1000, 2000, 4000];
 
 export class WorldSync {
-  constructor({ canvasId, store, onState, onError, onChange = () => {},
+  constructor({ canvasId, store, onState, onError, onChange = () => {}, onEvent = () => {}, onChunk = () => {},
     transport, fetchChunk = getChunk, sleep = wait }) {
-    Object.assign(this, { canvasId, store, onState, onError, onChange, fetchChunk, sleep });
+    Object.assign(this, { canvasId, store, onState, onError, onChange, onEvent, onChunk, fetchChunk, sleep });
     this.socket = transport || io({ autoConnect: false });
     this.outbox = [];
     this.wanted = [];
@@ -31,6 +31,12 @@ export class WorldSync {
     this.socket.on('stroke:new', stroke => {
       if (!this.stopped && this.store.addStroke(stroke)) this.onChange();
     });
+    this.socket.on('stroke:fate', ({ seqs, fate, entityId }) => {
+      if (!this.stopped && this.store.applyFate(seqs, fate, entityId)) this.onChange();
+    });
+    for (const name of ['alive:goo', 'alive:progress', 'alive:choose', 'alive:failed', 'world:event']) {
+      this.socket.on(name, data => { if (!this.stopped) this.onEvent(name, data); });
+    }
   }
 
   start() { this.socket.connect(); }
@@ -81,7 +87,7 @@ export class WorldSync {
           this.store.retain(chunks);
           await Promise.all(chunks.filter(([cx, cy]) => full || !this.store.isLoaded(cx, cy)).map(async ([cx, cy]) => {
             const data = await this.fetchChunk(this.canvasId, cx, cy, this.store.watermark(cx, cy));
-            if (current()) this.store.merge(cx, cy, data);
+            if (current()) { this.store.merge(cx, cy, data); this.onChunk(cx, cy, data); }
           }));
           if (!current()) { this.refetchAll = true; this.viewportDirty = true; continue; }
           failures = 0;

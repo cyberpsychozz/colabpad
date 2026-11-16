@@ -62,6 +62,20 @@ export class ChunkStore {
     this.#dirtyAround(chunk);
   }
 
+  // A live fate for strokes wherever they are stored; true if anything changed.
+  applyFate(seqs, fate, entityId = null) {
+    const wanted = new Set(seqs);
+    let changed = false;
+    for (const chunk of this.chunks.values()) {
+      const hit = [...wanted].filter(seq => chunk.strokes.has(seq));
+      if (!hit.length) continue;
+      for (const seq of hit) chunk.fates.set(seq, { seq, fate, entityId });
+      this.#dirtyAround(chunk);
+      changed = true;
+    }
+    return changed;
+  }
+
   hasStrokes() {
     for (const chunk of this.chunks.values()) if (chunk.strokes.size) return true;
     return false;

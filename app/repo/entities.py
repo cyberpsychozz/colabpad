@@ -44,6 +44,7 @@ class EntityRepo:
             "w": params.get("w"),
             "h": params.get("h"),
             "variant": params.get("variant"),
+            "scale": params.get("scale", 1),
             "sprite": {
                 "sheet": f"/sprites/{row['sheet_path']}",
                 "manifest": json.loads(row["manifest"] or "{}"),

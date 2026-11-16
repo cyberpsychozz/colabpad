@@ -2,11 +2,13 @@
 import { getCanvas } from '../api.js';
 import { Camera, formatHash, parseHash, visibleChunks } from '../camera.js';
 import { ChunkStore } from '../chunks.js';
+import { EntityStore } from '../entities.js';
 import { pointerPoint, preparePoints, simplify, splitAtChunks, splitStroke } from '../draw.js';
 import { has, onLocaleChange, t } from '../i18n/i18n.js';
 import { drawWorld } from '../render/strokes.js';
 import { WorldSync } from '../socket.js';
 import { track } from '../analytics.js';
+import { createAlive } from './alive.js';
 import { brand, languageSwitch, refreshLanguageSwitch } from './chrome.js';
 import { element, localize, toast } from './dom.js';
 import { createTools } from './tools.js';
@@ -44,6 +46,10 @@ export async function openWorld(root, canvasId) {
     size: limits.chunkSize,
     createTile: pixels => Object.assign(document.createElement('canvas'), { width: pixels, height: pixels }),
   });
+  const entities = new EntityStore({
+    size: limits.chunkSize,
+    loadImage: url => { const image = new Image(); image.onload = () => schedule(); image.src = url; return image; },
+  });
   let connection = { connected: false, pending: 0 };
   let active = null, lasso = null, frame = 0, drewHere = false, started = false;
 
@@ -51,6 +57,8 @@ export async function openWorld(root, canvasId) {
     canvasId, store,
     onState(state) { connection = state; refreshText(); schedule(); },
     onChange: () => schedule(),
+    onEvent: (name, data) => alivePanel.onEvent(name, data),
+    onChunk: (cx, cy, data) => entities.setChunk(cx, cy, data.entities),
     onError(code) { toast(t(has(`err.${code}`) ? `err.${code}` : 'canvas.unsaved')); schedule(); },
   });
 
@@ -62,6 +70,12 @@ export async function openWorld(root, canvasId) {
   stage.append(tools.el);
   localize(tools.el);
   lassoPanel.append(element('button', { class: 'icon-button', type: 'button', 'data-i18n-label': 'alive.cancel', onclick: () => { lasso = null; refreshText(); schedule(); } }, '×'));
+  const alivePanel = createAlive({
+    canvasId, panel: lassoPanel, stage, camera, entities,
+    onChange: () => schedule(),
+    getLasso: () => lasso,
+    clearLasso: () => { lasso = null; },
+  });
   localize(lassoPanel);
 
   function refreshText() {
@@ -80,7 +94,9 @@ export async function openWorld(root, canvasId) {
   function render() {
     frame = 0;
     const pending = active ? [...sync.outbox, active] : sync.outbox;
-    drawWorld(ctx, { camera, store, dpr: dpr(), pending, lasso });
+    const animating = drawWorld(ctx, { camera, store, dpr: dpr(), pending, lasso, entities, goos: alivePanel.goos, now: performance.now() });
+    alivePanel.reposition();
+    if (animating) schedule();
     if (!started && store.allLoaded(wanted().filter(c => c.visible).map(c => [c.cx, c.cy]))) {
       started = true;
       loading.hidden = true;
@@ -99,7 +115,9 @@ export async function openWorld(root, canvasId) {
 
   let hashTimer = 0;
   function cameraChanged() {
-    sync.setViewport(wanted().map(c => [c.cx, c.cy]));
+    const chunks = wanted().map(c => [c.cx, c.cy]);
+    sync.setViewport(chunks);
+    entities.retain(chunks);
     clearTimeout(hashTimer);
     hashTimer = setTimeout(() => history.replaceState(null, '', formatHash(camera)), 400);
     schedule();
@@ -175,6 +193,7 @@ export async function openWorld(root, canvasId) {
     } else {
       mode = 'lasso';
       lasso = { points: [], closed: false };
+      alivePanel.clearError();
       capture(event, lasso.points);
     }
     if (mode) event.preventDefault();
@@ -234,7 +253,7 @@ export async function openWorld(root, canvasId) {
   window.addEventListener('beforeunload', beforeUnload);
   const observer = new ResizeObserver(resize);
   observer.observe(stage);
-  const stopLocale = onLocaleChange(() => { localize(page); refreshLanguageSwitch(page); tools.refresh(); refreshText(); });
+  const stopLocale = onLocaleChange(() => { localize(page); refreshLanguageSwitch(page); tools.refresh(); alivePanel.refresh(); refreshText(); schedule(); });
 
   // Deep link first, else the server's spawn point.
   const rect = stage.getBoundingClientRect();
@@ -247,6 +266,7 @@ export async function openWorld(root, canvasId) {
   return () => {
     alive = false;
     sync.stop();
+    alivePanel.destroy();
     cancelAnimationFrame(frame);
     clearTimeout(hashTimer);
     observer.disconnect();

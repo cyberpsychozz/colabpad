@@ -1,7 +1,8 @@
 export class ApiError extends Error {
   constructor(error, status) {
     super(error?.message || 'Request failed');
-    this.code = error?.code || 'INTERNAL';
+    this.code = error?.code || 'NETWORK';
+    this.details = error?.details || {};
     this.status = status;
   }
 }
@@ -17,4 +18,8 @@ export async function request(path, options = {}) {
 
 export const getCanvas = id => request(`/api/canvases/${encodeURIComponent(id)}`);
 export const getChunk = (id, cx, cy, afterSeq = 0) => request(`/api/canvases/${encodeURIComponent(id)}/chunks/${cx}/${cy}?afterSeq=${afterSeq}`);
+const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+export const getMe = () => request('/api/me');
+export const postAlive = (id, lasso) => request(`/api/canvases/${encodeURIComponent(id)}/alive`, json('POST', { lasso }));
+export const postChoice = (jobId, type) => request(`/api/alive/${encodeURIComponent(jobId)}/choice`, json('POST', { type }));
 export const countMetric = key => request(`/api/metrics/${key}`, { method: 'POST' });

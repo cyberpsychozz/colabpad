@@ -36,6 +36,17 @@ test('every key used in code exists, and no Cyrillic literal lives outside the c
   assert.ok(!/[А-Яа-яЁё]/.test(html), 'Cyrillic literal in index.html');
 });
 
+test('every server error code and every object type has text in both languages', () => {
+  const errors = readFileSync(join(src, '..', '..', 'app', 'errors.py'), 'utf8');
+  const codes = [...errors.slice(errors.indexOf('STATUS = {'), errors.indexOf('}', errors.indexOf('STATUS = {'))).matchAll(/"([A-Z_]+)":/g)].map(m => m[1]);
+  assert.ok(codes.length > 20);
+  for (const code of codes) for (const locale of ['ru', 'en']) assert.ok(catalogs[locale][`err.${code}`], `err.${code} (${locale})`);
+  const archetypes = readFileSync(join(src, '..', '..', 'config', 'archetypes.yaml'), 'utf8');
+  const types = [...archetypes.matchAll(/^([a-z]+):$/gm)].map(m => m[1]);
+  assert.equal(types.length, 14);
+  for (const type of types) for (const locale of ['ru', 'en']) assert.ok(catalogs[locale][`type.${type}`], `type.${type} (${locale})`);
+});
+
 test('locale detection, placeholders and Russian plurals', () => {
   assert.equal(detectLocale(null, 'ru-RU'), 'ru');
   assert.equal(detectLocale(null, 'de-DE'), 'en');

@@ -1209,3 +1209,87 @@ footer {
     display:none
   }
 }
+
+/* ---- ALIVE: button under the lasso, chooser ---- */
+.lasso-panel {
+  flex-wrap:wrap;
+  justify-content:center;
+  max-width:380px
+}
+.alive-main {
+  display:flex;
+  align-items:center;
+  gap:10px
+}
+.alive-go {
+  background:var(--accent);
+  border-color:var(--ink);
+  font-weight:800;
+  letter-spacing:.08em;
+  gap:8px
+}
+.alive-left {
+  font-size:12px;
+  color:var(--muted)
+}
+.alive-error {
+  flex-basis:100%;
+  order:3;
+  padding:4px 8px 6px;
+  font-size:13px;
+  color:#b3261e;
+  text-align:center
+}
+.lasso-panel .icon-button {
+  order:2
+}
+.chooser {
+  position:absolute;
+  transform:translateX(-50%);
+  width:min(300px,calc(100% - 16px));
+  padding:10px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:#fff;
+  box-shadow:0 8px 28px rgba(37,39,34,.18);
+  z-index:3
+}
+.chooser-head {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:8px;
+  font-size:14px
+}
+.chooser-time {
+  min-width:24px;
+  text-align:center;
+  font-size:12px;
+  color:var(--muted);
+  font-variant-numeric:tabular-nums
+}
+.chooser-row,.chooser-grid {
+  display:grid;
+  gap:6px
+}
+.chooser-grid {
+  grid-template-columns:1fr 1fr;
+  margin-bottom:6px
+}
+.chip {
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:var(--paper);
+  padding:9px 10px;
+  font-size:13px;
+  font-weight:600;
+  text-align:left;
+  min-height:40px
+}
+.chip:hover {
+  border-color:var(--ink)
+}
+.chip.quiet {
+  background:transparent;
+  color:var(--muted)
+}

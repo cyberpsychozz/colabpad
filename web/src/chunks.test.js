@@ -62,8 +62,10 @@ test('fated strokes are not painted, and scale changes repaint', () => {
   store.retain([[0, 0]]);
   store.merge(0, 0, page([stroke(1, 0, 0, [[1, 1, 0.5], [2, 2, 0.5]]), stroke(2, 0, 0, [[5, 5, 0.5], [6, 6, 0.5]])], 2, [{ seq: 1, fate: 'consumed', entityId: 'e' }]));
   assert.deepEqual(drawn(store.tile(0, 0)), [2]);
-  store.setFates(0, 0, [{ seq: 2, fate: 'destroyed', entityId: null }]);
+  assert.equal(store.applyFate([2, 99], 'destroyed'), true);
+  assert.equal(store.applyFate([99], 'destroyed'), false);
   assert.deepEqual(drawn(store.tile(0, 0)), [2]);
+  assert.equal(store.get(0, 0).fates.get(2).fate, 'destroyed');
   const sharp = store.tile(0, 0, 2);
   assert.equal(sharp.width, 2048);
   assert.deepEqual(drawn(sharp), []);
