@@ -35,6 +35,7 @@ WORKDIR /srv/collabpad
 COPY --from=python-dependencies /opt/venv /opt/venv
 COPY --chown=collabpad:collabpad app/ ./app/
 COPY --chown=collabpad:collabpad config/ ./config/
+COPY --chown=collabpad:collabpad prompts/ ./prompts/
 COPY --chown=collabpad:collabpad deploy/backup.py ./deploy/backup.py
 COPY --from=frontend --chown=collabpad:collabpad /build/app/static/ ./app/static/
 
