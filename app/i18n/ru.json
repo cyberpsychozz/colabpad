@@ -1,4 +1,6 @@
 {
+  "mail.login_subject": "Вход в CollabPad",
+  "mail.login_body": "Чтобы войти, откройте ссылку в течение {minutes} мин.\n{url}",
   "err.VALIDATION_FAILED": "Проверь формат и допустимые значения",
   "err.UNAUTHENTICATED": "Сначала войди",
   "err.FORBIDDEN_ROLE": "Оживлять могут только редакторы этого мира",

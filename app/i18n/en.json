@@ -1,4 +1,6 @@
 {
+  "mail.login_subject": "Sign in to CollabPad",
+  "mail.login_body": "Open this link within {minutes} minutes to sign in.\n{url}",
   "err.VALIDATION_FAILED": "Check the format and the allowed values",
   "err.UNAUTHENTICATED": "Sign in first",
   "err.FORBIDDEN_ROLE": "Only editors of this world can bring drawings to life",

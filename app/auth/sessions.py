@@ -23,19 +23,16 @@ def session_id_from_cookie_header(header: str | None) -> str | None:
     return cookie[COOKIE].value if COOKIE in cookie else None
 
 
-def ensure_session(request: Request, response: Response) -> dict[str, Any]:
+async def ensure_session(request: Request, response: Response) -> dict[str, Any]:
     """The caller's session, created (and its cookie set) on first use."""
     repo: Repository = request.app.state.repo
-    session = repo.get_session(request.cookies.get(COOKIE))
+    session = repo.cookie_session(request.cookies.get(COOKIE))
     if session is None:
         session = repo.create_session(pick_locale(request.headers.get("accept-language")))
-        response.set_cookie(
-            COOKIE,
-            session["id"],
-            max_age=MAX_AGE,
-            httponly=True,
-            samesite="lax",
-            secure=request.app.state.settings.public_url.startswith("https://"),
-            path="/",
-        )
+        set_session_cookie(request, response, session["id"])
     return session
+
+
+def set_session_cookie(request: Request, response: Response, cookie: str) -> None:
+    response.set_cookie(COOKIE, cookie, max_age=MAX_AGE, httponly=True, samesite="lax",
+                        secure=request.app.state.settings.public_url.startswith("https://"), path="/")

@@ -97,7 +97,7 @@ class Realtime:
 
     async def connect(self, sid: str, environ: dict[str, Any]) -> None:
         self.locales[sid] = pick_locale(environ.get("HTTP_ACCEPT_LANGUAGE"))
-        session = self.get_repo().get_session(
+        session = self.get_repo().cookie_session(
             session_id_from_cookie_header(environ.get("HTTP_COOKIE"))
         )
         if session:

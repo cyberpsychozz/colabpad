@@ -21,6 +21,8 @@ from app.alive.builtin import ensure_builtin_sprites
 from app.alive.queue import AliveService, Rig
 from app.alive.rig import rig_sprite
 from app.alive.vlm import Budget, OpenRouterVlm, UnavailableVlm, Vlm, load_prompt
+from app.auth.api import auth_router
+from app.auth.mail import Mailer, SmtpMailer
 from app.auth.sessions import ensure_session
 from app.config import GameConfig, Settings
 from app.db import connect
@@ -119,7 +121,8 @@ class PayloadLimit:
 
 
 def create_app(
-    settings: Settings | None = None, vlm: Vlm | None = None, rig: Rig = rig_sprite
+    settings: Settings | None = None, vlm: Vlm | None = None, rig: Rig = rig_sprite,
+    mailer: Mailer | None = None,
 ) -> FastAPI:
     """vlm and rig can be replaced by fakes in tests."""
     settings = settings or Settings()
@@ -285,6 +288,8 @@ def create_app(
         application.state.repo.increment_metric(key)
         return Response(status_code=204)
 
+    application.state.mailer = mailer or SmtpMailer(settings)
+    application.include_router(auth_router(config.limits["auth"]["magic_link_rate"]))
     application.include_router(create_router())
 
     # API routes precede static mounting and explicit SPA routes.

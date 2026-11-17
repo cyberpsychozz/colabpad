@@ -19,7 +19,7 @@ def create_router() -> APIRouter:
         state = request.app.state
         quota = state.alive.quota(session)
         return {
-            "user": None,
+            "user": state.repo.public_user(session["user_id"]),
             "plan": "free" if quota["plan"] == "anon" else quota["plan"],
             "ads": state.config.flags.ads.enabled and quota["plan"] != "plus",
             "locale": session["locale"],

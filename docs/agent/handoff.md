@@ -34,7 +34,7 @@ recognition put an OpenRouter key in `.env` as `VLM_API_KEY`; models and the $5/
 - **T13** reproduction works and is tested; the 30-minute soak for caps is not written.
 - **T14** sleep catch-up is implemented (`World._catch_up`, `life.catch_up`, each brain's
   `catch_up`) but has no test yet.
-- **T19** magic-link auth. Anonymous session cookies and `/api/me` exist (`app/auth/sessions.py`).
+- **T19** backend implemented: localized SMTP links, single-use 15-minute tokens, session linking, quota transfer, logout and account data in `/api/me`. Login UI and bilingual privacy consent are pending. Mail delivery is tested with a fake mailbox; configure `SMTP_*` and `PUBLIC_URL` for a real sender.
 - **T20** private worlds and roles. `Realtime.role()` in `app/realtime/gateway.py` is the one
   place to extend; today the shared world is editor for all and other canvases use `link_role`.
 - **T21** ЮKassa, freeze. `canvas.frozen` is honoured everywhere; nothing sets it yet.

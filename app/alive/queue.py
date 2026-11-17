@@ -105,6 +105,15 @@ class AliveService:
         offset = timedelta(hours=self.limits["quota_utc_offset_hours"])
         return (datetime.fromtimestamp(self.clock(), UTC) + offset).strftime("%Y-%m-%d")
 
+    def link_subject(self, anonymous: str, account: str) -> None:
+        for job in self.jobs.values():
+            if job.subject == anonymous:
+                job.subject = account
+        self.inflight[account] += self.inflight.pop(anonymous, 0)
+        last = self.last_request.pop(anonymous, None)
+        if last is not None:
+            self.last_request[account] = max(last, self.last_request.get(account, last))
+
     def quota(self, session: dict[str, Any]) -> dict[str, Any]:
         repo = self.get_repo()
         plan = repo.plan_of(session, int(self.clock() * 1000))

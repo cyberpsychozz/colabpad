@@ -184,3 +184,9 @@ CREATE TABLE IF NOT EXISTS metric (
     key TEXT PRIMARY KEY,
     value INTEGER NOT NULL DEFAULT 0
 );
+
+-- A separate credential lets sign-in rotate the cookie while retaining session ownership.
+CREATE TABLE IF NOT EXISTS login_cookie (
+    digest TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL UNIQUE REFERENCES session(id)
+);

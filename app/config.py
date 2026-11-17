@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     public_url: str = "http://localhost:8000"
     # process: the world runs in its own process. inline: stepped by tests. off: no world.
     sim_mode: str = Field("process", pattern="^(process|inline|off)$")
+    smtp_host: str = ""
+    smtp_port: int = 465
+    smtp_from: str = ""
+    smtp_user: str = ""
+    smtp_password: str = ""
     vlm_api_key: str = ""
     yookassa_shop_id: str = ""
     yookassa_secret_key: str = ""
