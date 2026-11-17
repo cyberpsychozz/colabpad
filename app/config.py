@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     smtp_from: str = ""
     smtp_user: str = ""
     smtp_password: str = ""
+    # Yandex Advertising Network (RSYa) block ids; ads also need flags.ads.enabled.
+    ads_block_side: str = ""
+    ads_block_bottom: str = ""
     vlm_api_key: str = ""
     yookassa_shop_id: str = ""
     yookassa_secret_key: str = ""

@@ -28,6 +28,18 @@ export function dialog(markup, label) {
   return modal;
 }
 
+// A dialog built from nodes (never from user-supplied markup).
+export function modal(label, ...children) {
+  const box = element('dialog', { class: 'dialog', 'aria-label': label },
+    element('button', { class: 'icon-button dialog-close', type: 'button', 'data-i18n-label': 'dialog.close', onclick: () => box.close() }, '×'),
+    ...children);
+  document.body.append(box);
+  box.addEventListener('close', () => box.remove());
+  box.addEventListener('click', event => { if (event.target === box) box.close(); });
+  box.showModal();
+  return box;
+}
+
 // Fill static text from the catalogs: data-i18n (text), -label (aria-label), -title.
 export function localize(root = document) {
   for (const el of root.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);

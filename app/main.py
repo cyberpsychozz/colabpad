@@ -23,7 +23,7 @@ from app.alive.rig import rig_sprite
 from app.alive.vlm import Budget, OpenRouterVlm, UnavailableVlm, Vlm, load_prompt
 from app.auth.access import access_router, require_role
 from app.auth.api import auth_router
-from app.auth.mail import Mailer, SmtpMailer
+from app.auth.mail import Mailer, build_mailer
 from app.auth.sessions import ensure_session
 from app.billing.api import billing_router
 from app.billing.gateway import Payments, build_payments
@@ -251,6 +251,7 @@ def create_app(
             "kind": canvas["kind"],
             "title": canvas["title"],
             "role": role,
+            "owner": bool(session["user_id"]) and canvas["owner_user_id"] == session["user_id"],
             "frozen": bool(canvas["frozen"]),
             "bounds": {"w": canvas["bounds_w"], "h": canvas["bounds_h"]},
             "spawn": {"x": canvas["bounds_w"] / 2, "y": canvas["bounds_h"] / 2},
@@ -304,7 +305,7 @@ def create_app(
         application.state.repo.increment_metric(key)
         return Response(status_code=204)
 
-    application.state.mailer = mailer or SmtpMailer(settings)
+    application.state.mailer = mailer or build_mailer(settings)
     application.include_router(auth_router(config.limits["auth"]["magic_link_rate"]))
     application.include_router(access_router())
     application.include_router(billing_router())

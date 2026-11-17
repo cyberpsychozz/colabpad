@@ -1,6 +1,7 @@
 """Outbound mail through an authenticated TLS SMTP connection."""
 
 import asyncio
+import logging
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -11,6 +12,20 @@ from app.config import Settings
 
 class Mailer(Protocol):
     async def send(self, recipient: str, subject: str, body: str) -> None: ...
+
+
+logger = logging.getLogger(__name__)
+
+
+class ConsoleMailer:
+    """No SMTP configured (local development): the mail goes to the server log instead."""
+
+    async def send(self, recipient: str, subject: str, body: str) -> None:
+        logger.warning("Mail to %s (SMTP_HOST is not set, nothing was sent)\n%s\n%s", recipient, subject, body)
+
+
+def build_mailer(settings: Settings) -> Mailer:
+    return SmtpMailer(settings) if settings.smtp_host else ConsoleMailer()
 
 
 class SmtpMailer:

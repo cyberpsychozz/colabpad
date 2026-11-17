@@ -11,7 +11,11 @@ import { WorldSync } from '../socket.js';
 import { track } from '../analytics.js';
 import { createAlive } from './alive.js';
 import { createControl } from './control.js';
+import { currentMe } from '../me.js';
+import { accountButton, openAccount } from './account.js';
 import { brand, languageSwitch, refreshLanguageSwitch } from './chrome.js';
+import { mountAds } from './gate.js';
+import { shareButton } from './share.js';
 import { element, localize, toast } from './dom.js';
 import { createTools } from './tools.js';
 
@@ -27,8 +31,9 @@ export async function openWorld(root, canvasId) {
   const loading = element('div', { class: 'world-loading' }, element('span', { class: 'spinner' }), element('h2', { 'data-i18n': 'canvas.loading' }));
   const lassoPanel = element('div', { class: 'lasso-panel', hidden: true });
   const stage = element('div', { class: 'world-stage' }, canvas, hint, lassoPanel, loading);
-  const page = element('div', { class: 'world' },
-    element('header', { class: 'world-bar' }, brand(), status, languageSwitch()), stage);
+  const bar = element('header', { class: 'world-bar' }, brand(), status, accountButton(), languageSwitch());
+  const body = element('div', { class: 'world-body' }, stage);
+  const page = element('div', { class: 'world' }, bar, body);
   root.replaceChildren(page);
   localize(page);
 
@@ -36,11 +41,23 @@ export async function openWorld(root, canvasId) {
   try { config = await getCanvas(canvasId); }
   catch (error) {
     if (!alive) return () => {};
-    loading.replaceChildren(element('h2', {}, t(error.code === 'NOT_FOUND' || error.code === 'VALIDATION_FAILED' ? 'err.NOT_FOUND' : 'err.NETWORK')));
-    return () => { alive = false; };
+    const key = error.code === 'FORBIDDEN_ROLE' ? 'canvas.noAccess'
+      : error.code === 'NOT_FOUND' || error.code === 'VALIDATION_FAILED' ? 'err.NOT_FOUND' : 'err.NETWORK';
+    loading.replaceChildren(element('h2', { 'data-i18n': key }),
+      error.code === 'FORBIDDEN_ROLE' && !currentMe().user
+        ? element('button', { class: 'button primary', type: 'button', 'data-i18n': 'account.signIn', onclick: openAccount })
+        : element('a', { class: 'button', href: '/w', 'data-i18n': 'landing.enter' }));
+    status.hidden = true;
+    localize(loading);
+    const stop = onLocaleChange(() => { localize(page); refreshLanguageSwitch(page); });
+    return () => { alive = false; stop(); };
   }
   if (!alive) return () => {};
 
+  if (config.owner) status.after(shareButton(canvasId));
+  if (config.kind === 'private') bar.querySelector('.brand').after(element('span', { class: 'world-title' }, config.title || ''));
+  if (currentMe().ads) mountAds(body, stage, currentMe().adBlocks || {});
+  localize(bar);
   const { limits, bounds } = config;
   const canEdit = config.role === 'editor';
   const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
@@ -96,6 +113,9 @@ export async function openWorld(root, canvasId) {
       else if (data.type === 'death') { entities.die(data.id, data.fossil, now); vfx.add(data, now); }
       else if (data.type !== 'spawn') vfx.add(data, now);
       if (data.type === 'spawn') alivePanel.onEvent(name, data);
+    } else if (name === 'canvas:frozen') {
+      // Roles and tools change with it: start the screen again from the server's answer.
+      if (data.frozen !== config.frozen) location.reload();
     } else if (name.startsWith('control:')) control.onEvent(name, data);
     else alivePanel.onEvent(name, data);
     schedule();

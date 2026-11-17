@@ -35,7 +35,7 @@ export class WorldSync {
       if (!this.stopped && this.store.applyFate(seqs, fate, entityId)) this.onChange();
     });
     for (const name of ['alive:goo', 'alive:progress', 'alive:choose', 'alive:failed', 'world:event',
-      'world:snapshot', 'world:delta', 'control:granted', 'control:revoked']) {
+      'world:snapshot', 'world:delta', 'control:granted', 'control:revoked', 'canvas:frozen']) {
       this.socket.on(name, data => { if (!this.stopped) this.onEvent(name, data); });
     }
   }

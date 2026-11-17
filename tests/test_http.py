@@ -16,7 +16,7 @@ def test_canvas_and_chunk_contract(
     assert client.get("/api/health").json() == {"ok": True}
     world = client.get("/api/canvases/world").json()
     assert set(world) == {
-        "id", "kind", "title", "role", "frozen", "bounds", "spawn", "limits", "palette",
+        "id", "kind", "title", "role", "owner", "frozen", "bounds", "spawn", "limits", "palette",
     }  # fmt: skip
     assert world["kind"] == "world" and world["role"] == "editor" and not world["frozen"]
     assert world["bounds"] == {"w": 19456, "h": 11264}

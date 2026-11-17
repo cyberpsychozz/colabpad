@@ -210,6 +210,7 @@ class CanvasOut(WireModel):
     kind: str
     title: str | None
     role: str
+    owner: bool = False
     frozen: bool
     bounds: BoundsOut
     spawn: SpawnOut

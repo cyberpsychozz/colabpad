@@ -280,6 +280,7 @@ def test_me_and_session_cookie(make: Any) -> None:
     assert "cp_session=" in cookie and "HttpOnly" in cookie and "SameSite=lax" in cookie
     assert first.json() == {
         "user": None, "plan": "free", "ads": False, "locale": "ru", "quota": {"used": 0, "limit": 10}, "subscription": None,
+        "adBlocks": {"side": "", "bottom": ""},
     }  # fmt: skip
     again = client.get("/api/me")
     assert "set-cookie" not in again.headers and again.json()["locale"] == "ru"

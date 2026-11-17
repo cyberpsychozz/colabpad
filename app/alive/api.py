@@ -23,6 +23,7 @@ def create_router() -> APIRouter:
             "user": state.repo.public_user(session["user_id"]),
             "plan": "free" if quota["plan"] == "anon" else quota["plan"],
             "ads": state.config.flags.ads.enabled and quota["plan"] != "plus",
+            "adBlocks": {"side": state.settings.ads_block_side, "bottom": state.settings.ads_block_bottom},
             "locale": session["locale"],
             "subscription": state.billing.public(state.repo.get_subscription(session["user_id"])),
             "quota": {"used": quota["used"], "limit": quota["limit"]},

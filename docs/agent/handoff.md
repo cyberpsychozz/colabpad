@@ -20,28 +20,38 @@ ALIVE without a key shows the manual type grid (the author picks the type). For 
 recognition put an OpenRouter key in `.env` as `VLM_API_KEY`; models and the $5/day cap are in
 `config/vlm.yaml`. The real VLM path has only been tested against a mocked HTTP transport.
 
-## Done (one commit per task, tests with each)
+## Done (tests with each)
 
 | Task | State |
 |---|---|
-| T0–T6, T8–T12, T15–T18 | done |
-| T24 | client and server catalogs, missing-key and stray-Cyrillic tests, RU/EN switch, error envelope. Not done: full landing copy, e-mails |
-| T23 | daily quota per Moscow day, refunds, 1 ALIVE per 5 s are in T9. Not done: free/Plus limits depend on T19/T21 |
+| T0–T6, T8–T18 | done (T13 soak: `tests/test_sim_soak.py`; T14: `tests/test_sim_catchup.py`) |
+| T19 | magic-link login, session linking, logout, `PUT /api/me/locale`, login dialog with consent in RU/EN |
+| T20 | private worlds (`/p/{slug}`), roles on every REST route and socket event, share dialog, invite mail |
+| T21 | YooKassa behind `app/billing/gateway.py` (fake in tests), checkout, webhook (re-fetch + IP allowlist), cancel, renewal, freeze/unfreeze, `/plans`, `/billing/return` |
+| T22 | ad slots, adblock detector and gate (`web/src/ads.js`, `web/src/ui/gate.js`) |
+| T23 | quotas per Moscow day, refunds, rate limits, free/Plus limits |
+| T24 | catalogs, switch, locale saved in session and account, e-mails. Not done: fuller landing copy |
+
+Local development without SMTP: mail (sign-in links, invitations) is printed to the server log
+(`ConsoleMailer`). Without YooKassa test keys checkout answers `PAYMENT_FAILED`; a key that does
+not start with `test_` is refused on purpose.
 
 ## Not done
 
-- **T7** accuracy run over 60+ drawings: needs a real VLM key.
-- **T13** reproduction works and is tested; the 30-minute soak for caps is not written.
-- **T14** sleep catch-up is implemented (`World._catch_up`, `life.catch_up`, each brain's
-  `catch_up`) but has no test yet.
-- **T19** backend implemented: localized SMTP links, single-use 15-minute tokens, session linking, quota transfer, logout and account data in `/api/me`. Login UI and bilingual privacy consent are pending. Mail delivery is tested with a fake mailbox; configure `SMTP_*` and `PUBLIC_URL` for a real sender.
-- **T20** private worlds and roles. `Realtime.role()` in `app/realtime/gateway.py` is the one
-  place to extend; today the shared world is editor for all and other canvases use `link_role`.
-- **T21** ЮKassa, freeze. `canvas.frozen` is honoured everywhere; nothing sets it yet.
-- **T22** ad slots and the adblock gate.
-- **T25** load test script, **T26** the §12 scenarios, **T27** `docs/agent/deploy.md`.
+- **T7** accuracy run over 60+ drawings: needs a real VLM key and budget.
+- **T25** load test script (2 000 entities, 50 clients).
+- **T26** the §12 scenarios end to end, balance.
+- **T27** `docs/agent/deploy.md` (must mention: `SMTP_*`, `ADS_BLOCK_*`, YooKassa webhook URL
+  `/api/billing/webhook`, uvicorn already runs with `--proxy-headers` so the IP allowlist sees
+  the real client address).
+- Retention job (§5), `GET /api/me/events`.
+- After sign-in the callback always redirects to `/w`, not back to the world the user came from.
 
 ## Not verified
+
+- A real YooKassa test shop (only the fake and a mocked HTTP transport), real SMTP delivery,
+  and the gate with a real ad blocker (unit-tested; in the browser only "no blocker, empty
+  fill, world opens" was seen).
 
 - `docker compose up --build`: the Docker daemon was not running. The Dockerfile now installs
   `libfontconfig1 libgl1 libegl1` for skia-python and copies `config/` and `prompts/`.
@@ -72,6 +82,12 @@ recognition put an OpenRouter key in `.env` as `VLM_API_KEY`; models and the $5/
   row may end with a `view` object (scale, bites, stock, fuse, raining, bound).
 - `NOT_JOINED` is a socket-only error code that tells the client to resubscribe.
 - Person on plant (a ● cell the brief does not describe): a hungry person shakes a fruit tree.
+- With `billing.recurring` off, a subscription whose period ends becomes `past_due` and its
+  worlds freeze after the 3-day grace; `canceled` freezes at period end.
+- Signed-in sessions use a rotated cookie stored hashed in `login_cookie` (added table).
+- `/api/me` also returns `subscription` and `adBlocks`; the canvas response has `owner`;
+  `GET /api/canvases` lists my worlds; `WORLD_LIMIT` is an added error code.
+- Losing access disconnects the socket (`Realtime.recheck`); `canvas:frozen` makes clients reload.
 - Hand tool: click pets (or claims a remote), double click pushes, drag carries.
 
 ## Open questions for the human

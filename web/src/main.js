@@ -2,6 +2,11 @@ import './styles.css';
 import { detectLocale, getLocale, onLocaleChange, setLocale, t } from './i18n/i18n.js';
 import { brand, languageSwitch, refreshLanguageSwitch } from './ui/chrome.js';
 import { $, element, localize, storage } from './ui/dom.js';
+import { putLocale } from './api.js';
+import { loadMe } from './me.js';
+import { accountButton } from './ui/account.js';
+import { passGate } from './ui/gate.js';
+import { openBillingReturn, openPlans } from './ui/plans.js';
 import { openWorld } from './ui/world.js';
 
 const WORLD_ID = 'world';
@@ -18,7 +23,7 @@ function applyLocale() {
 
 function home() {
   root.replaceChildren(element('div', { class: 'home' },
-    element('header', { class: 'site-header' }, brand(), languageSwitch()),
+    element('header', { class: 'site-header' }, brand(), element('span', { class: 'spacer' }), accountButton(), languageSwitch()),
     element('main', {}, element('div', { class: 'hero' }, element('div', { class: 'hero-copy' },
       element('span', { class: 'eyebrow' }, element('span', { class: 'status-dot green' }), ' ', element('span', { 'data-i18n': 'landing.eyebrow' })),
       element('h1', { 'data-i18n': 'landing.title' }),
@@ -30,12 +35,21 @@ function home() {
 
 async function route() {
   cleanup(); cleanup = () => {};
-  if (location.pathname === '/w') cleanup = await openWorld(root, WORLD_ID);
+  const me = await loadMe();
+  if (me.locale && me.locale !== getLocale()) putLocale(getLocale()).catch(() => {});
+  const path = location.pathname;
+  const slug = path.match(/^\/p\/([A-Za-z0-9_-]{10})$/)?.[1];
+  if (path === '/w' || slug) {
+    // Free viewers see ads; with an ad blocker on, the world is neither mounted nor connected.
+    if (me.ads) await passGate(root);
+    cleanup = await openWorld(root, slug || WORLD_ID);
+  } else if (path === '/plans') cleanup = openPlans(root);
+  else if (path === '/billing/return') cleanup = openBillingReturn(root);
   else home();
 }
 
 setLocale(detectLocale(storage.get('collabpad-locale'), navigator.language));
-onLocaleChange(locale => { storage.set('collabpad-locale', locale); applyLocale(); });
+onLocaleChange(locale => { storage.set('collabpad-locale', locale); putLocale(locale).catch(() => {}); applyLocale(); });
 applyLocale();
 // Full navigation between screens prevents abandoning an unsaved in-memory outbox.
 window.addEventListener('popstate', route);

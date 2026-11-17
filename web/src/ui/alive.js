@@ -3,19 +3,14 @@ import { getMe, postAlive, postChoice } from '../api.js';
 import { has, t } from '../i18n/i18n.js';
 import { gooGeometry } from '../render/goo.js';
 import { element, toast } from './dom.js';
+import { errorText } from './errors.js';
+
+export { errorText };
 
 export const TYPES = ['creature', 'predator', 'aquatic', 'person', 'food', 'plant', 'water', 'house',
   'explosive', 'vehicle', 'remote', 'fire', 'sky', 'doodle'];
 const ICONS = { creature: '🐄', predator: '🐺', aquatic: '🐟', person: '🧍', food: '🍎', plant: '🌳', water: '💧',
   house: '🏠', explosive: '💣', vehicle: '🚗', remote: '🎮', fire: '🔥', sky: '☁️', doodle: '⭐' };
-
-export function errorText(code, details = {}) {
-  if (code === 'QUOTA_EXCEEDED') {
-    const hint = `err.QUOTA_EXCEEDED.hint.${details.plan || 'anon'}`;
-    return t('err.QUOTA_EXCEEDED', { hint: has(hint) ? t(hint) : '' }).trim();
-  }
-  return t(has(`err.${code}`) ? `err.${code}` : 'err.INTERNAL');
-}
 
 export function createAlive({ canvasId, panel, stage, camera, entities, onChange, getLasso, clearLasso }) {
   const goos = new Map();     // jobId -> goo being shown

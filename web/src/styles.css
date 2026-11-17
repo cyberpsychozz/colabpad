@@ -1340,3 +1340,50 @@ footer {
     display:grid
   }
 }
+
+/* ---- Accounts, sharing, plans, ads ---- */
+.spacer { flex:1 }
+.world-body { flex:1; min-height:0; display:flex }
+.world-body .world-stage { min-width:0 }
+.world-title { font-weight:650; font-size:15px; max-width:28vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.world-loading .button { margin-top:16px }
+.account-button, .world-bar .button { padding:8px 12px; font-size:13px; max-width:210px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block }
+.dialog { position:relative }
+.dialog-close { position:absolute; top:6px; right:8px; font-size:26px }
+.dialog h3 { font-size:15px; margin:22px 0 10px }
+.dialog select { border:1px solid var(--line); border-radius:8px; padding:10px; background:var(--paper); font:inherit; font-size:13px }
+.dialog label.check { display:flex; gap:10px; align-items:flex-start; font-size:13px; line-height:1.5; margin-bottom:12px }
+.dialog label.check input { width:auto; margin:3px 0 0 }
+.form-error { color:#b3402f; font-size:13px; min-height:1em; margin:8px 0 0 }
+.inline-form { display:flex; gap:8px; align-items:center; margin-bottom:16px }
+.inline-form input:not([type=range]) { margin-bottom:0; flex:1; min-width:0 }
+.inline-form .button { padding:11px 14px; white-space:nowrap }
+.world-list { display:flex; flex-direction:column; gap:6px; margin-bottom:18px }
+.world-link { display:flex; justify-content:space-between; gap:12px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; text-decoration:none; color:inherit; background:#fff }
+.world-link small { color:var(--muted) }
+.member-list { list-style:none; padding:0; margin:0 0 16px; display:flex; flex-direction:column; gap:6px }
+.member-list li { display:flex; align-items:center; gap:8px; font-size:13px }
+.member-list li span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis }
+.icon-button.small { font-size:20px; min-width:32px; min-height:32px }
+.spinner.small { width:18px; height:18px }
+.plans main, .gate-body { max-width:860px; padding:48px 0 }
+.plans h1, .gate-body h1 { font-size:clamp(30px,4vw,48px); letter-spacing:-1.5px; margin:0 0 28px }
+.gate-body p { line-height:1.7; max-width:640px }
+.gate-perks { font-weight:650 }
+.gate-actions, .plan-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:20px }
+.plan-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px }
+.plan-card { border:1px solid var(--line); border-radius:14px; padding:26px; background:#fff }
+.plan-card.featured { border-color:var(--ink); box-shadow:0 12px 30px #393b2914 }
+.plan-card h2 { margin:0 0 6px; font-size:22px }
+.plan-price { font-size:26px; font-weight:700; margin:0 0 16px }
+.plan-card ul { padding-left:18px; line-height:1.9; font-size:14px; margin:0 0 8px }
+.plan-status { font-size:13px; color:var(--muted) }
+.plan-card .text-link { margin-top:14px; display:block }
+.ad-slot { flex:none; width:160px; min-height:600px; align-self:center; overflow:hidden }
+.ad-slot.ad-bottom { width:100%; min-height:0; max-height:120px; align-self:auto }
+@media(min-width:1500px) { .ad-slot.ad-left, .ad-slot.ad-right { width:300px } }
+@media(max-width:760px) {
+  .plan-grid { grid-template-columns:1fr }
+  .world-bar { gap:8px; padding:6px 8px }
+  .world-bar .connection-text, .world-title { display:none }
+}
