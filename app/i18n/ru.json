@@ -27,5 +27,13 @@
   "page.frontend_missing": "Интерфейс ещё не собран. Выполни npm run build в папке web.",
   "label.apple": "яблоко",
   "label.fish": "рыба",
-  "label.flame": "огонь"
+  "label.flame": "огонь",
+  "err.WORLD_LIMIT": "Достигнут предел: {limit}",
+  "roles.viewer": "Наблюдатель",
+  "roles.player": "Игрок",
+  "roles.editor": "Редактор",
+  "mail.invite_subject": "Вас пригласили в мир «{title}» на CollabPad",
+  "mail.invite_body": "Вам открыли доступ к миру «{title}». Роль: {role}.\nВойдите с этим адресом почты и откройте ссылку:\n{url}",
+  "billing.description.plus_month": "CollabPad «Плюс», 1 месяц",
+  "billing.description.plus_year": "CollabPad «Плюс», 1 год"
 }

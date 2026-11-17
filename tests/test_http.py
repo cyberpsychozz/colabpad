@@ -44,7 +44,7 @@ def test_canvas_and_chunk_contract(
     assert [s["seq"] for s in other["strokes"]] == [4] and other["fates"] == []
     assert client.get("/docs").status_code == 200
     assert client.get("/api/health").headers["cache-control"] == "no-store"
-    assert client.post("/api/canvases").status_code == 404
+    assert client.post("/api/canvases", json={"title": "x"}).status_code == 401
 
 
 @pytest.mark.parametrize(

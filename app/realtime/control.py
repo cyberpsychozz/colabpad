@@ -45,9 +45,9 @@ class Control:
         entity = self.sim.live.get(entity_id) if self.sim is not None else None
         if canvas_id is None:
             raise AppError("NOT_JOINED")
+        self.realtime.require_role(sid, canvas_id, "player")
         if entity is None or self.sim.canvas_of.get(entity_id) != canvas_id:
             raise AppError("NOT_FOUND")
-        self.realtime.require_role(sid, canvas_id, "player")
         return canvas_id, entity
 
     # ---- pet, push, drag

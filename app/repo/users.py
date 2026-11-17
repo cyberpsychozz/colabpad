@@ -93,6 +93,20 @@ class UserRepo:
     def logout(self, sid: str) -> None:
         self.db.execute("DELETE FROM login_cookie WHERE session_id=?", (sid,))
 
+    def user_by_email(self, email: str, locale: str | None = None) -> dict[str, Any]:
+        """The account for an address, created if this is the first time we see it."""
+        self.db.execute(
+            "INSERT INTO app_user(id,email,locale,created_at) VALUES(?,?,?,?)"
+            " ON CONFLICT(email) DO NOTHING",
+            (str(uuid4()), email, locale, now_ms()),
+        )
+        return dict(self.db.execute("SELECT * FROM app_user WHERE email=?", (email,)).fetchone())
+
+    def set_locale(self, session: dict[str, Any], locale: str) -> None:
+        self.db.execute("UPDATE session SET locale=? WHERE id=?", (locale, session["id"]))
+        if session.get("user_id"):
+            self.db.execute("UPDATE app_user SET locale=? WHERE id=?", (locale, session["user_id"]))
+
     def public_user(self, user_id: str | None) -> dict[str, Any] | None:
         row = self.db.execute("SELECT id,email FROM app_user WHERE id=?", (user_id,)).fetchone()
         return dict(row) if row else None

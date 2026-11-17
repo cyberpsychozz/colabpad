@@ -52,3 +52,81 @@ class CanvasRepo:
         if row is None:
             raise AppError("NOT_FOUND")
         return dict(row)
+
+    # ---- private worlds, access and members
+
+    ROLES = ("none", "viewer", "player", "editor")
+
+    def role_of(self, canvas: dict[str, Any], session: dict[str, Any] | None) -> str:
+        """Owner is editor; otherwise the better of the link role and the member role.
+
+        A frozen world lets everyone watch and nothing more."""
+        user_id = session.get("user_id") if session else None
+        if canvas["kind"] == "world" or (user_id and canvas["owner_user_id"] == user_id):
+            role = "editor"
+        else:
+            row = self.db.execute(
+                "SELECT role FROM canvas_member WHERE canvas_id=? AND user_id=?",
+                (canvas["id"], user_id),
+            ).fetchone()
+            member = row["role"] if row else "none"
+            role = max(canvas["link_role"], member, key=self.ROLES.index)
+        if canvas["frozen"] and role != "none":
+            return "viewer"
+        return role
+
+    def owned_canvases(self, user_id: str) -> list[dict[str, Any]]:
+        return [
+            dict(row)
+            for row in self.db.execute(
+                "SELECT * FROM canvas WHERE owner_user_id=? ORDER BY created_at", (user_id,)
+            )
+        ]
+
+    def shared_canvases(self, user_id: str) -> list[dict[str, Any]]:
+        return [
+            dict(row)
+            for row in self.db.execute(
+                "SELECT c.*, m.role AS member_role FROM canvas c JOIN canvas_member m"
+                " ON m.canvas_id=c.id WHERE m.user_id=? ORDER BY m.created_at",
+                (user_id,),
+            )
+        ]
+
+    def set_link_role(self, canvas_id: str, role: str) -> None:
+        self.db.execute("UPDATE canvas SET link_role=? WHERE id=?", (role, canvas_id))
+
+    def set_frozen(self, canvas_id: str, frozen: bool) -> None:
+        self.db.execute("UPDATE canvas SET frozen=? WHERE id=?", (int(frozen), canvas_id))
+
+    def members(self, canvas_id: str) -> list[dict[str, Any]]:
+        return [
+            {"userId": row["user_id"], "email": row["email"], "role": row["role"]}
+            for row in self.db.execute(
+                "SELECT m.user_id, m.role, u.email FROM canvas_member m JOIN app_user u"
+                " ON u.id=m.user_id WHERE m.canvas_id=? ORDER BY m.created_at",
+                (canvas_id,),
+            )
+        ]
+
+    def set_member(self, canvas_id: str, user_id: str, role: str, invited_by: str) -> None:
+        self.db.execute(
+            "INSERT INTO canvas_member(canvas_id,user_id,role,invited_by,created_at)"
+            " VALUES(?,?,?,?,?) ON CONFLICT(canvas_id,user_id) DO UPDATE SET role=excluded.role",
+            (canvas_id, user_id, role, invited_by, now_ms()),
+        )
+
+    def update_member(self, canvas_id: str, user_id: str, role: str) -> bool:
+        return bool(
+            self.db.execute(
+                "UPDATE canvas_member SET role=? WHERE canvas_id=? AND user_id=?",
+                (role, canvas_id, user_id),
+            ).rowcount
+        )
+
+    def remove_member(self, canvas_id: str, user_id: str) -> bool:
+        return bool(
+            self.db.execute(
+                "DELETE FROM canvas_member WHERE canvas_id=? AND user_id=?", (canvas_id, user_id)
+            ).rowcount
+        )

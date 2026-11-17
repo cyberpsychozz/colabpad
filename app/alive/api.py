@@ -4,9 +4,10 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, Response
 
+from app.auth.access import require_role
 from app.auth.sessions import ensure_session
 from app.errors import AppError
-from app.models import AliveIn, ChoiceIn, check_id
+from app.models import AliveIn, ChoiceIn, LocaleIn, check_id
 
 Session = Annotated[dict[str, Any], Depends(ensure_session)]
 
@@ -23,8 +24,14 @@ def create_router() -> APIRouter:
             "plan": "free" if quota["plan"] == "anon" else quota["plan"],
             "ads": state.config.flags.ads.enabled and quota["plan"] != "plus",
             "locale": session["locale"],
+            "subscription": state.billing.public(state.repo.get_subscription(session["user_id"])),
             "quota": {"used": quota["used"], "limit": quota["limit"]},
         }
+
+    # Returning None keeps the session cookie that ensure_session may have just set.
+    @router.put("/api/me/locale", status_code=204, response_class=Response, response_model=None)
+    async def locale(body: LocaleIn, request: Request, session: Session) -> None:
+        request.app.state.repo.set_locale(session, body.locale)
 
     @router.post("/api/canvases/{canvas_id}/alive", status_code=202)
     async def alive(
@@ -32,9 +39,7 @@ def create_router() -> APIRouter:
     ) -> dict[str, Any]:
         state = request.app.state
         canvas = state.repo.get_canvas(check_id(canvas_id))
-        # Roles arrive with accounts; until then only the shared world can be edited.
-        if canvas["kind"] != "world":
-            raise AppError("FORBIDDEN_ROLE")
+        require_role(request, canvas, session, "editor")
         job, quota = state.alive.submit(canvas, session, body.lasso)
         await state.alive.announce(job, session["nickname"])
         return {"jobId": job.id, "quota": quota}

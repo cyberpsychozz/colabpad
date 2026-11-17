@@ -78,11 +78,20 @@ class Realtime:
     ROLES = ("none", "viewer", "player", "editor")
 
     def role(self, sid: str, canvas_id: str) -> str:
-        """The socket's effective role. Accounts and private worlds refine this in T20."""
-        canvas = self.get_repo().get_canvas(canvas_id)
-        if canvas["frozen"]:
-            return "viewer"
-        return "editor" if canvas["kind"] == "world" else canvas["link_role"]
+        """The socket's effective role on a canvas (AGENTS.md §5)."""
+        repo = self.get_repo()
+        return repo.role_of(repo.get_canvas(canvas_id), repo.get_session(self.sessions.get(sid)))
+
+    async def recheck(self, canvas_id: str) -> None:
+        """Access changed: sockets that may no longer watch are dropped and must rejoin."""
+        for sid, (watched, _) in list(self.rooms.viewports.items()):
+            if watched == canvas_id and self.role(sid, canvas_id) == "none":
+                await self.sio.disconnect(sid)
+
+    async def frozen(self, canvas_id: str, frozen: bool) -> None:
+        for sid, (watched, _) in list(self.rooms.viewports.items()):
+            if watched == canvas_id:
+                await self.sio.emit("canvas:frozen", {"frozen": frozen}, to=sid)
 
     def require_role(self, sid: str, canvas_id: str, needed: str) -> None:
         if self.ROLES.index(self.role(sid, canvas_id)) < self.ROLES.index(needed):
@@ -131,6 +140,7 @@ class Realtime:
                 data, context={"max_chunks": self.max_chunks}
             )
             canvas = self.get_repo().get_canvas(payload.canvas_id)
+            self.require_role(sid, payload.canvas_id, "viewer")
             chunks = frozenset(
                 (cx, cy)
                 for cx, cy in payload.chunks

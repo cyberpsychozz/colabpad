@@ -2,6 +2,7 @@
 
 import sqlite3
 
+from app.repo.billing import BillingRepo
 from app.repo.canvases import CanvasRepo
 from app.repo.entities import EntityRepo
 from app.repo.fates import FateRepo
@@ -12,7 +13,7 @@ from app.repo.users import UserRepo
 
 
 class Repository(
-    CanvasRepo, StrokeRepo, FateRepo, MetricRepo, UserRepo, JobRepo, EntityRepo
+    CanvasRepo, StrokeRepo, FateRepo, MetricRepo, UserRepo, JobRepo, EntityRepo, BillingRepo
 ):
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.db = connection

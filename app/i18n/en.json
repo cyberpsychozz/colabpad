@@ -27,5 +27,13 @@
   "page.frontend_missing": "The frontend isn't built yet. Run npm run build in the web folder.",
   "label.apple": "apple",
   "label.fish": "fish",
-  "label.flame": "fire"
+  "label.flame": "fire",
+  "err.WORLD_LIMIT": "You've reached the limit of {limit}",
+  "roles.viewer": "Viewer",
+  "roles.player": "Player",
+  "roles.editor": "Editor",
+  "mail.invite_subject": "You're invited to the world “{title}” on CollabPad",
+  "mail.invite_body": "You've been given access to the world “{title}” as: {role}.\nSign in with this e-mail address and open the link:\n{url}",
+  "billing.description.plus_month": "CollabPad Plus, 1 month",
+  "billing.description.plus_year": "CollabPad Plus, 1 year"
 }

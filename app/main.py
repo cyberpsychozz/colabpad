@@ -21,9 +21,13 @@ from app.alive.builtin import ensure_builtin_sprites
 from app.alive.queue import AliveService, Rig
 from app.alive.rig import rig_sprite
 from app.alive.vlm import Budget, OpenRouterVlm, UnavailableVlm, Vlm, load_prompt
+from app.auth.access import access_router, require_role
 from app.auth.api import auth_router
 from app.auth.mail import Mailer, SmtpMailer
 from app.auth.sessions import ensure_session
+from app.billing.api import billing_router
+from app.billing.gateway import Payments, build_payments
+from app.billing.service import Billing
 from app.config import GameConfig, Settings
 from app.db import connect
 from app.errors import AppError, validation_error
@@ -122,7 +126,7 @@ class PayloadLimit:
 
 def create_app(
     settings: Settings | None = None, vlm: Vlm | None = None, rig: Rig = rig_sprite,
-    mailer: Mailer | None = None,
+    mailer: Mailer | None = None, payments: Payments | None = None,
 ) -> FastAPI:
     """vlm and rig can be replaced by fakes in tests."""
     settings = settings or Settings()
@@ -150,9 +154,18 @@ def create_app(
             on_spawn=lambda entity: sim.spawn(entity["id"]),
         )
         application.state.alive.start()
+        billing = application.state.billing = Billing(
+            settings, config, lambda: application.state.repo,
+            payments or build_payments(http, settings.yookassa_shop_id, settings.yookassa_secret_key),
+            application.state.realtime, sim,
+        )  # fmt: skip
+        await billing.sweep()
+        if settings.sim_mode != "inline":  # tests move the clock and sweep themselves
+            billing.start()
         try:
             yield
         finally:
+            await billing.stop()
             await application.state.alive.stop()
             await sim.stop()
             await http.aclose()
@@ -185,7 +198,7 @@ def create_app(
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.origins,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Content-Type"],
     )
 
@@ -229,15 +242,15 @@ def create_app(
 
     @application.get("/api/canvases/{canvas_id}", response_model=CanvasOut)
     async def get_canvas(
-        canvas_id: str, session: Annotated[dict[str, Any], Depends(ensure_session)]
+        request: Request, canvas_id: str, session: Annotated[dict[str, Any], Depends(ensure_session)]
     ) -> dict[str, Any]:
         canvas = application.state.repo.get_canvas(check_id(canvas_id))
+        role = require_role(request, canvas, session, "viewer")
         return {
             "id": canvas["id"],
             "kind": canvas["kind"],
             "title": canvas["title"],
-            # Roles arrive with accounts (T20); the shared world gives editor to all.
-            "role": "viewer" if canvas["frozen"] else "editor",
+            "role": role,
             "frozen": bool(canvas["frozen"]),
             "bounds": {"w": canvas["bounds_w"], "h": canvas["bounds_h"]},
             "spawn": {"x": canvas["bounds_w"] / 2, "y": canvas["bounds_h"] / 2},
@@ -260,10 +273,13 @@ def create_app(
         canvas_id: str,
         cx: Annotated[int, Path(ge=0)],
         cy: Annotated[int, Path(ge=0)],
+        request: Request,
+        session: Annotated[dict[str, Any], Depends(ensure_session)],
         after_seq: Annotated[int, Query(alias="afterSeq", ge=0)] = 0,
     ) -> dict[str, Any]:
         repo = application.state.repo
         canvas = repo.get_canvas(check_id(canvas_id))
+        require_role(request, canvas, session, "viewer")
         size = config.limits["world"]["chunk_size"]
         if cx * size >= canvas["bounds_w"] or cy * size >= canvas["bounds_h"]:
             raise AppError("NOT_FOUND")
@@ -290,6 +306,8 @@ def create_app(
 
     application.state.mailer = mailer or SmtpMailer(settings)
     application.include_router(auth_router(config.limits["auth"]["magic_link_rate"]))
+    application.include_router(access_router())
+    application.include_router(billing_router())
     application.include_router(create_router())
 
     # API routes precede static mounting and explicit SPA routes.
@@ -306,6 +324,9 @@ def create_app(
 
     @application.get("/", include_in_schema=False)
     @application.get("/w", include_in_schema=False)
+    @application.get("/p/{slug}", include_in_schema=False)
+    @application.get("/plans", include_in_schema=False)
+    @application.get("/billing/return", include_in_schema=False)
     async def index(request: Request) -> Response:
         path = settings.static_dir / "index.html"
         if not path.is_file():

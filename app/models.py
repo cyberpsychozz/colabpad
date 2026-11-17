@@ -131,6 +131,35 @@ class InputIn(WireModel):
     ay: float = Field(ge=-1, le=1, allow_inf_nan=False)
 
 
+EMAIL = r"^[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"
+MemberRole = Literal["viewer", "player", "editor"]
+
+
+class LocaleIn(WireModel):
+    locale: Literal["ru", "en"]
+
+
+class CanvasIn(WireModel):
+    title: str = Field(min_length=1, max_length=60)
+
+
+class AccessIn(WireModel):
+    link_role: Literal["none", "viewer", "player", "editor"]
+
+
+class MemberIn(WireModel):
+    email: str = Field(max_length=254, pattern=EMAIL)
+    role: MemberRole
+
+
+class RoleIn(WireModel):
+    role: MemberRole
+
+
+class CheckoutIn(WireModel):
+    plan: Literal["plus_month", "plus_year"]
+
+
 class StrokeOut(WireModel):
     seq: int
     color: str

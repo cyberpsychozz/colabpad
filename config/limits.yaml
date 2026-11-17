@@ -43,6 +43,9 @@ control:
   lease_s: 60
   input_rate: 20/1
   bind_radius: 400
+worlds:
+  max_private: 5
+  max_members: 50
 auth:
   magic_link_ttl_min: 15
   magic_link_rate: 3/600
