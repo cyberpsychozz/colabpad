@@ -171,6 +171,8 @@ CREATE TABLE IF NOT EXISTS world_event (
     actors TEXT,
     payload TEXT
 );
+-- Retention and "my events" both read by time.
+CREATE INDEX IF NOT EXISTS world_event_at ON world_event (at);
 
 CREATE TABLE IF NOT EXISTS magic_token (
     token_hash TEXT PRIMARY KEY,

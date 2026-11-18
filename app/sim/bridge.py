@@ -23,6 +23,15 @@ from app.sim.process import SimCore, run
 
 logger = logging.getLogger(__name__)
 
+# Payload fields of a world event that name another entity taking part in it.
+ACTOR_FIELDS = ("by", "target", "tree", "vehicle", "fish", "food")
+
+
+def actors_of(payload: dict[str, Any]) -> list[str]:
+    """Every entity an event involves: its subject first, then the others it names."""
+    found = [payload.get("id"), *(payload.get(name) for name in ACTOR_FIELDS), *payload.get("parents", ())]
+    return list(dict.fromkeys(actor for actor in found if isinstance(actor, str)))
+
 
 class InlineTransport:
     """The simulation in this process, stepped explicitly. For tests."""
@@ -261,7 +270,7 @@ class SimBridge:
     async def on_event(self, message: dict[str, Any]) -> None:
         payload = {k: v for k, v in message.items() if k not in ("op", "canvas")}
         self.events.append(
-            (message["canvas"], message["tick"], now_ms(), message["type"], message.get("id"), payload)
+            (message["canvas"], message["tick"], now_ms(), message["type"], actors_of(payload), payload)
         )
         await self.realtime.emit(
             "world:event", payload, [room(message["canvas"], (message["cx"], message["cy"]))]
@@ -273,8 +282,8 @@ class SimBridge:
         if events:
             self.get_repo().db.executemany(
                 "INSERT INTO world_event(canvas_id, tick, at, type, actors, payload) VALUES(?,?,?,?,?,?)",
-                [(c, tick, at, kind, json.dumps([actor] if actor else []), json.dumps(payload, ensure_ascii=False))
-                 for c, tick, at, kind, actor, payload in events],  # fmt: skip
+                [(c, tick, at, kind, json.dumps(actors), json.dumps(payload, ensure_ascii=False))
+                 for c, tick, at, kind, actors, payload in events],  # fmt: skip
             )
 
     async def on_snapshot(self, message: dict[str, Any]) -> None:

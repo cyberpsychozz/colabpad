@@ -18,6 +18,15 @@ from app.repo.canvases import now_ms
 
 class MagicLinkRequest(BaseModel):
     email: str = Field(max_length=254)
+    # Where to land after signing in. Only a world path, so the link cannot redirect elsewhere.
+    next: str | None = Field(default=None, max_length=64)
+
+
+RETURN_PATH = re.compile(r"/w|/plans|/p/[A-Za-z0-9_-]{1,32}")
+
+
+def return_path(path: str | None) -> str:
+    return path if path and RETURN_PATH.fullmatch(path) else "/w"
 
 
 def auth_router(rate: str) -> APIRouter:
@@ -39,6 +48,8 @@ def auth_router(rate: str) -> APIRouter:
         locale = session["locale"]
         state.repo.store_magic_token(digest, email, locale, now_ms() + ttl * 60_000)
         url = state.settings.public_url.rstrip("/") + "/api/auth/callback?token=" + token
+        if return_path(body.next) != "/w":
+            url += "&next=" + return_path(body.next)
         try:
             await state.mailer.send(email, translate(locale, "mail.login_subject"),
                                     translate(locale, "mail.login_body", {"url": url, "minutes": ttl}))
@@ -53,7 +64,7 @@ def auth_router(rate: str) -> APIRouter:
                 await realtime.sio.disconnect(socket)
 
     @router.get("/callback")
-    async def callback(token: str, request: Request) -> RedirectResponse:
+    async def callback(token: str, request: Request, next: str | None = None) -> RedirectResponse:
         repo = request.app.state.repo
         session = repo.cookie_session(request.cookies.get(COOKIE))
         credential = repo.redeem_magic_token(token, session)
@@ -62,7 +73,7 @@ def auth_router(rate: str) -> APIRouter:
             request.app.state.alive.link_subject(repo.subject_of(session), repo.subject_of(account))
         if session:
             await disconnect_session(request, session["id"])
-        response = RedirectResponse("/w", status_code=302)
+        response = RedirectResponse(return_path(next), status_code=302)
         set_session_cookie(request, response, credential)
         return response
 

@@ -35,6 +35,7 @@ from app.i18n import pick_locale, translate
 from app.models import CanvasOut, ChunkOut, ErrorOut, check_id
 from app.realtime.gateway import Realtime
 from app.repo import Repository
+from app.retention import Retention
 from app.sim.bridge import SimBridge
 
 logger = logging.getLogger(__name__)
@@ -160,11 +161,16 @@ def create_app(
             application.state.realtime, sim,
         )  # fmt: skip
         await billing.sweep()
+        retention = application.state.retention = Retention(
+            lambda: application.state.repo, settings.sprites_dir, config.limits["retention_days"]
+        )
         if settings.sim_mode != "inline":  # tests move the clock and sweep themselves
             billing.start()
+            retention.start()
         try:
             yield
         finally:
+            await retention.stop()
             await billing.stop()
             await application.state.alive.stop()
             await sim.stop()

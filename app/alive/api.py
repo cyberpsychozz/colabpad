@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from app.auth.access import require_role
 from app.auth.sessions import ensure_session
@@ -28,6 +28,15 @@ def create_router() -> APIRouter:
             "subscription": state.billing.public(state.repo.get_subscription(session["user_id"])),
             "quota": {"used": quota["used"], "limit": quota["limit"]},
         }
+
+    @router.get("/api/me/events")
+    async def my_events(
+        request: Request, session: Session, since: Annotated[int, Query(ge=0)] = 0
+    ) -> dict[str, Any]:
+        """What happened to the things I brought to life, oldest first, 100 at a time.
+        `since` is unix ms; pass the last event's `at` to get the next page."""
+        events = request.app.state.repo.my_events(session, since)
+        return {"events": events, "next": events[-1]["at"] if events else since}
 
     # Returning None keeps the session cookie that ensure_session may have just set.
     @router.put("/api/me/locale", status_code=204, response_class=Response, response_model=None)

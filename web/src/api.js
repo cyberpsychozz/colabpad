@@ -24,7 +24,7 @@ export const postAlive = (id, lasso) => request(`/api/canvases/${encodeURICompon
 export const postChoice = (jobId, type) => request(`/api/alive/${encodeURIComponent(jobId)}/choice`, json('POST', { type }));
 export const countMetric = key => request(`/api/metrics/${key}`, { method: 'POST' });
 export const putLocale = locale => request('/api/me/locale', json('PUT', { locale }));
-export const postMagicLink = email => request('/api/auth/magic-link', json('POST', { email }));
+export const postMagicLink = (email, next) => request('/api/auth/magic-link', json('POST', { email, next }));
 export const postLogout = () => request('/api/auth/logout', { method: 'POST' });
 export const getWorlds = () => request('/api/canvases');
 export const postWorld = title => request('/api/canvases', json('POST', { title }));

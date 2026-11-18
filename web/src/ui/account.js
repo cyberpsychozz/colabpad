@@ -33,7 +33,7 @@ function signIn(body) {
     send.disabled = true;
     problem.textContent = '';
     try {
-      await postMagicLink(email.value.trim());
+      await postMagicLink(email.value.trim(), location.pathname);
       body.replaceChildren(element('h2', { 'data-i18n': 'account.sentTitle' }), element('p', {}, t('account.sent', { email: email.value.trim() })));
       localize(body);
     } catch (error) {

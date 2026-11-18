@@ -44,6 +44,29 @@ def test_magic_link_links_session_preserves_quota_and_rotates_cookie(application
     assert client.get("/api/me").json()["user"] is None
 
 
+def test_sign_in_returns_to_the_world_it_started_from(application, client):
+    mailbox = application.state.mailer = FakeMailbox()
+    bodies = [
+        {"email": "a@example.org", "next": "/p/abc_DEF-1"},
+        {"email": "b@example.org", "next": "https://evil.example/p/x"},
+        {"email": "c@example.org", "next": "//evil.example"},
+        {"email": "d@example.org"},
+    ]
+    for body in bodies:
+        assert client.post("/api/auth/magic-link", json=body).status_code == 204
+    landed = []
+    for message in mailbox.messages:
+        url = urlsplit(re.search(r"https?://\S+", message[2])[0])
+        result = client.get(url.path + "?" + url.query, follow_redirects=False)
+        landed.append(result.headers["location"])
+    assert landed == ["/p/abc_DEF-1", "/w", "/w", "/w"]
+    # A hand-edited callback cannot point elsewhere either.
+    assert client.post("/api/auth/magic-link", json={"email": "e@example.org"}).status_code == 204
+    url = urlsplit(re.search(r"https?://\S+", mailbox.messages[-1][2])[0])
+    result = client.get(url.path + "?" + url.query + "&next=//evil.example", follow_redirects=False)
+    assert result.headers["location"] == "/w"
+
+
 def test_magic_link_expiry_and_rate_limit(application, client):
     mailbox = application.state.mailer = FakeMailbox()
     for email in ["a@example.org", "A@example.org", "a@EXAMPLE.org"]:
