@@ -4,6 +4,9 @@ WORKDIR /build/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
+# The catalog test checks that every server error code and object type has text.
+COPY app/errors.py /build/app/errors.py
+COPY config/archetypes.yaml /build/config/archetypes.yaml
 RUN npm test && npm run build
 
 FROM python:3.12-slim-bookworm AS python-dependencies
