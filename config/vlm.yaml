@@ -1,0 +1,12 @@
+# VLM adapter settings. The key comes from env (VLM_API_KEY), never from this file.
+# Model IDs checked against the OpenRouter model list on 2026-11-16.
+base_url: https://openrouter.ai/api/v1
+primary_model: google/gemini-3.8-flash
+fallback_model: qwen/qwen3-vl-235b-a22b-instruct
+temperature: 0
+max_tokens: 700
+timeout_s: 10
+retries: 1               # extra attempts on the primary model before the fallback
+daily_budget_usd: 5      # over budget -> the manual type grid, never an error
+# Used when the provider does not report the cost of a call.
+estimated_call_usd: 0.004

@@ -1,0 +1,47 @@
+# Label overrides (either language, lowercase): the label wins over the VLM's type.
+# Optional fields are merged into the VLM result.
+волк: {type: predator}
+wolf: {type: predator}
+паук: {type: predator}
+spider: {type: predator}
+монстр: {type: predator}
+monster: {type: predator}
+дракон: {type: predator, locomotion: fly}
+dragon: {type: predator, locomotion: fly}
+рыба: {type: aquatic}
+fish: {type: aquatic}
+кит: {type: aquatic}
+whale: {type: aquatic}
+костёр: {type: fire, variant: campfire}
+костер: {type: fire, variant: campfire}
+campfire: {type: fire, variant: campfire}
+факел: {type: fire, variant: campfire}
+torch: {type: fire, variant: campfire}
+гнездо: {type: house}
+nest: {type: house}
+сарай: {type: house}
+barn: {type: house}
+граната: {type: explosive}
+grenade: {type: explosive}
+бомба: {type: explosive}
+bomb: {type: explosive}
+динамит: {type: explosive}
+tnt: {type: explosive}
+облако: {type: sky, variant: cloud}
+туча: {type: sky, variant: cloud}
+cloud: {type: sky, variant: cloud}
+солнце: {type: sky, variant: sun}
+sun: {type: sky, variant: sun}
+пульт: {type: remote}
+remote: {type: remote}
+джойстик: {type: remote}
+joystick: {type: remote}
+руль: {type: remote}
+steering wheel: {type: remote}
+лодка: {type: vehicle, variant: boat}
+boat: {type: vehicle, variant: boat}
+самолёт: {type: vehicle, variant: plane}
+самолет: {type: vehicle, variant: plane}
+plane: {type: vehicle, variant: plane}
+машина: {type: vehicle, variant: car}
+car: {type: vehicle, variant: car}

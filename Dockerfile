@@ -4,6 +4,9 @@ WORKDIR /build/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
+# The catalog test checks that every server error code and object type has text.
+COPY app/errors.py /build/app/errors.py
+COPY config/archetypes.yaml /build/config/archetypes.yaml
 RUN npm test && npm run build
 
 FROM python:3.12-slim-bookworm AS python-dependencies
@@ -18,9 +21,14 @@ FROM python:3.12-slim-bookworm AS runtime
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DB_PATH=/var/lib/collabpad/collabpad.db \
+    DATA_DIR=/var/lib/collabpad \
     CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000 \
     FORWARDED_ALLOW_IPS=127.0.0.1
+
+# Shared libraries that skia-python's wheel links against.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libfontconfig1 libgl1 libegl1 \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system --gid 10001 collabpad \
     && useradd --system --uid 10001 --gid collabpad --no-create-home collabpad \
@@ -29,6 +37,8 @@ RUN groupadd --system --gid 10001 collabpad \
 WORKDIR /srv/collabpad
 COPY --from=python-dependencies /opt/venv /opt/venv
 COPY --chown=collabpad:collabpad app/ ./app/
+COPY --chown=collabpad:collabpad config/ ./config/
+COPY --chown=collabpad:collabpad prompts/ ./prompts/
 COPY --chown=collabpad:collabpad deploy/backup.py ./deploy/backup.py
 COPY --from=frontend --chown=collabpad:collabpad /build/app/static/ ./app/static/
 

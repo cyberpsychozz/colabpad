@@ -9,11 +9,18 @@ from uuid import uuid4
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.models import StrokeIn
-from deploy.backup import backup
+from deploy.backup import backup, mirror_sprites
+from tests.conftest import private_canvas, stroke_in
 
 
-def ack(ws: Any, number: int, event: str, payload: dict[str, Any]) -> dict[str, Any]:
+def ack(
+    ws: Any,
+    number: int,
+    event: str,
+    payload: dict[str, Any],
+    seen: list[int] | None = None,
+) -> dict[str, Any]:
+    """Emit with an ack id and wait for the reply, noting stroke:new seqs on the way."""
     ws.send_text(f"42{number}" + json.dumps([event, payload]))
     while True:
         message = ws.receive_text()
@@ -21,10 +28,15 @@ def ack(ws: Any, number: int, event: str, payload: dict[str, Any]) -> dict[str, 
             ws.send_text("3")
         elif message.startswith(f"43{number}["):
             return json.loads(message[len(f"43{number}") :])[0]
+        elif message.startswith('42["stroke:new"') and seen is not None:
+            seen.append(json.loads(message[2:])[1]["seq"])
 
 
-def test_fifty_rooms_and_ten_collaborators(client: TestClient) -> None:
-    ids = [client.post("/api/canvases").json()["id"] for _ in range(50)]
+def test_fifty_rooms_and_ten_collaborators(
+    client: TestClient, application: FastAPI
+) -> None:
+    repo = application.state.repo
+    ids = [private_canvas(repo) for _ in range(50)]
     with ExitStack() as stack:
         sockets = []
         for i in range(59):
@@ -38,10 +50,12 @@ def test_fifty_rooms_and_ten_collaborators(client: TestClient) -> None:
             ws.send_text("40")
             assert ws.receive_text().startswith("40")
             canvas_id = ids[i] if i < 50 else ids[0]
-            joined = ack(ws, 1, "canvas:join", {"canvasId": canvas_id})
+            # Half of the collaborators on the busy canvas watch another chunk.
+            chunks = [[5, 5]] if i >= 55 else [[0, 0], [1, 0]]
+            joined = ack(ws, 1, "viewport:set", {"canvasId": canvas_id, "chunks": chunks})
             assert joined["ok"]
             sockets.append(ws)
-        assert len(joined["online"]) == 10
+        seen: dict[int, list[int]] = {50: [], 58: []}
         for i in [0, *range(50, 59)]:
             saved = ack(
                 sockets[i],
@@ -54,36 +68,50 @@ def test_fifty_rooms_and_ten_collaborators(client: TestClient) -> None:
                     "width": 5,
                     "points": [[0, 0, 0.5], [100, 100, 0.5]],
                 },
+                seen.get(i),
             )
             assert saved["ok"]
-        strokes = client.get(f"/api/canvases/{ids[0]}").json()["strokes"]
+        # A subscriber of the chunk receives everyone else's strokes; a watcher of
+        # a distant chunk of the same canvas receives none.
+        for i in seen:
+            view = {"canvasId": ids[0], "chunks": [[7, 7]]}
+            assert ack(sockets[i], 3, "viewport:set", view, seen[i])["ok"]
+        assert seen == {50: [1, *range(3, 11)], 58: []}
+        strokes = client.get(f"/api/canvases/{ids[0]}/chunks/0/0").json()["strokes"]
         assert [stroke["seq"] for stroke in strokes] == list(range(1, 11))
-        assert client.get(f"/api/canvases/{ids[1]}").json()["strokes"] == []
+        assert client.get(f"/api/canvases/{ids[1]}/chunks/0/0").json()["strokes"] == []
 
 
-def test_five_thousand_stroke_load_and_online_backup(
-    client: TestClient, application: FastAPI, tmp_path: Path, record_property: Any
+def test_five_thousand_strokes_in_a_chunk_and_online_backup(
+    client: TestClient, application: FastAPI, tmp_path: Path
 ) -> None:
     repo = application.state.repo
-    canvas = repo.create_canvas()
     for i in range(5000):
-        stroke = StrokeIn.model_validate(
-            {
-                "canvasId": canvas["id"],
-                "clientId": str(uuid4()),
-                "color": "#123456",
-                "width": 3,
-                "points": [[(i + j) % 1600, (i + j) % 1000, 0.5] for j in range(12)],
-            }
-        )
-        repo.insert_stroke(stroke, None)
+        points = [[(i + j) % 1000, (i * 7 + j) % 1000, 0.5] for j in range(12)]
+        repo.insert_stroke(stroke_in(width=3, points=points), (0, 0))
     started = time.perf_counter()
-    data = client.get(f"/api/canvases/{canvas['id']}")
+    data = client.get("/api/canvases/world/chunks/0/0")
     elapsed = time.perf_counter() - started
     assert data.status_code == 200 and len(data.json()["strokes"]) == 5000
-    record_property("load_5000_seconds", round(elapsed, 4))
     print(f"\n5000 strokes / 12 points: REST {elapsed:.3f}s, {len(data.content)} bytes")
     copied = backup(Path(application.state.settings.db_path), tmp_path / "backups")
     with sqlite3.connect(copied) as db:
         assert db.execute("SELECT count(*) FROM stroke").fetchone()[0] == 5000
         assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def test_backup_mirrors_sprite_folders(tmp_path: Path) -> None:
+    source, mirror = tmp_path / "sprites", tmp_path / "backups" / "sprites"
+    for name in ("a", "b"):
+        (source / name).mkdir(parents=True)
+        (source / name / "sheet.png").write_bytes(name.encode())
+    assert mirror_sprites(source, mirror) == (2, 0)
+    assert mirror_sprites(source, mirror) == (0, 0)  # nothing new: nothing copied
+    (source / "c").mkdir()
+    (source / "c" / "sheet.png").write_bytes(b"c")
+    (source / "a" / "sheet.png").unlink()
+    (source / "a").rmdir()  # the retention job removed a dead entity's sprite
+    assert mirror_sprites(source, mirror) == (1, 1)
+    assert sorted(p.name for p in mirror.iterdir()) == ["b", "c"]
+    assert (mirror / "c" / "sheet.png").read_bytes() == b"c"
+    assert mirror_sprites(tmp_path / "missing", mirror) == (0, 0)

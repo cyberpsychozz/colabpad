@@ -1,8 +1,9 @@
 // Pure geometry and rendering shared by live drawing, restoration and replay.
-export function pointerPoint(event, rect, width, height) {
+export function pointerPoint(event, rect, camera) {
+  const [x, y] = camera.toWorld(event.clientX - rect.left, event.clientY - rect.top);
   return [
-    Math.max(0, Math.min(width, (event.clientX - rect.left) * width / rect.width)),
-    Math.max(0, Math.min(height, (event.clientY - rect.top) * height / rect.height)),
+    Math.max(0, Math.min(camera.bounds.w, x)),
+    Math.max(0, Math.min(camera.bounds.h, y)),
     event.pointerType === 'mouse' || !event.pressure ? 0.5 : event.pressure,
   ];
 }
@@ -42,6 +43,66 @@ export function preparePoints(points, epsilon, width, height) {
   return prepared.length === 1 ? [prepared[0], [...prepared[0]]] : prepared;
 }
 
+// One axis of the server's rule (app/models.py chunk_of): the range lies inside
+// one chunk, borders included.
+function fitsAxis(low, high, size) {
+  const index = Math.floor((low + high) / 2 / size);
+  return low >= index * size && high <= (index + 1) * size;
+}
+
+// Cut a polyline at chunk borders so that every piece lies inside one chunk.
+// Neighbouring pieces share the cut point, which sits exactly on the border.
+export function splitAtChunks(points, size) {
+  const path = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i], cuts = [];
+    for (const axis of [0, 1]) {
+      const low = Math.min(a[axis], b[axis]), high = Math.max(a[axis], b[axis]);
+      for (let line = (Math.floor(low / size) + 1) * size; line < high; line += size) {
+        cuts.push([(line - a[axis]) / (b[axis] - a[axis]), axis, line]);
+      }
+    }
+    cuts.sort((p, q) => p[0] - q[0]);
+    for (const [t, axis, line] of cuts) {
+      const cut = [
+        Math.round((a[0] + (b[0] - a[0]) * t) * 10) / 10,
+        Math.round((a[1] + (b[1] - a[1]) * t) * 10) / 10,
+        Math.round((a[2] + (b[2] - a[2]) * t) * 1000) / 1000,
+      ];
+      cut[axis] = line;
+      path.push(cut);
+    }
+    path.push(b);
+  }
+  const pieces = [];
+  let piece = [path[0]], box = [path[0][0], path[0][1], path[0][0], path[0][1]];
+  for (let i = 1; i < path.length; i++) {
+    const p = path[i];
+    const next = [Math.min(box[0], p[0]), Math.min(box[1], p[1]), Math.max(box[2], p[0]), Math.max(box[3], p[1])];
+    if (fitsAxis(next[0], next[2], size) && fitsAxis(next[1], next[3], size)) {
+      piece.push(p); box = next;
+    } else {
+      const last = piece.at(-1);
+      pieces.push(piece);
+      piece = [[...last], p];
+      box = [Math.min(last[0], p[0]), Math.min(last[1], p[1]), Math.max(last[0], p[0]), Math.max(last[1], p[1])];
+    }
+  }
+  pieces.push(piece);
+  return pieces;
+}
+
+// World-space box a stroke can paint into: its points padded by the widest line.
+export function strokeBounds(stroke) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of stroke.points) {
+    if (x < x0) x0 = x; if (x > x1) x1 = x;
+    if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  const pad = stroke.width * 0.75 + 1;
+  return [x0 - pad, y0 - pad, x1 + pad, y1 + pad];
+}
+
 export function splitStroke(stroke, maxPoints, maxBytes) {
   const result = [];
   let start = 0;
@@ -51,7 +112,7 @@ export function splitStroke(stroke, maxPoints, maxBytes) {
     // Leave space for the Socket.IO packet, UUID and future framing overhead.
     while (new TextEncoder().encode(JSON.stringify(chunk)).length + 256 > maxBytes) {
       end = start + Math.floor((end - start) / 2);
-      if (end - start < 2) throw new Error('Лимит сообщения слишком мал для штриха');
+      if (end - start < 2) throw new Error('Payload limit is too small for a stroke');
       chunk = { ...stroke, points: stroke.points.slice(start, end) };
     }
     result.push(chunk);

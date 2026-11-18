@@ -2,26 +2,54 @@
 
 import json
 import logging
+
+import httpx
 import re
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 import socketio
-from fastapi import FastAPI, Query, Request
+from fastapi import Depends, FastAPI, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from app.config import Settings
+from app.alive.api import create_router
+from app.alive.builtin import ensure_builtin_sprites
+from app.alive.queue import AliveService, Rig
+from app.alive.rig import rig_sprite
+from app.alive.vlm import Budget, OpenRouterVlm, UnavailableVlm, Vlm, load_prompt
+from app.auth.access import access_router, require_role
+from app.auth.api import auth_router
+from app.auth.mail import Mailer, build_mailer
+from app.auth.sessions import ensure_session
+from app.billing.api import billing_router
+from app.billing.gateway import Payments, build_payments
+from app.billing.service import Billing
+from app.config import GameConfig, Settings
 from app.db import connect
-from app.errors import AppError, too_large, validation_error
-from app.models import CanvasCreated, CanvasOut, ErrorOut, StrokesOut, check_id
-from app.realtime import Realtime, SlidingWindow
+from app.errors import AppError, validation_error
+from app.i18n import pick_locale, translate
+from app.models import CanvasOut, ChunkOut, ErrorOut, check_id
+from app.realtime.gateway import Realtime
 from app.repo import Repository
+from app.retention import Retention
+from app.sim.bridge import SimBridge
 
 logger = logging.getLogger(__name__)
+
+METRIC_KEYS = {"adblock_gate_shown", "adblock_gate_passed", "plus_clicked"}
+
+
+def scope_locale(scope: Scope) -> str:
+    headers = dict(scope.get("headers") or ())
+    return pick_locale(headers.get(b"accept-language", b"").decode("latin-1"))
+
+
+def request_locale(request: Request) -> str:
+    return pick_locale(request.headers.get("accept-language"))
 
 
 class PayloadLimit:
@@ -44,9 +72,10 @@ class PayloadLimit:
                     return
                 body.extend(message.get("body", b""))
                 if len(body) > self.limit:
-                    await JSONResponse(too_large().body(), status_code=413)(
-                        scope, receive, send
-                    )
+                    await JSONResponse(
+                        AppError("PAYLOAD_TOO_LARGE").body(scope_locale(scope)),
+                        status_code=413,
+                    )(scope, receive, send)
                     return
                 if not message.get("more_body", False):
                     break
@@ -82,7 +111,8 @@ class PayloadLimit:
                         return message
                     ack = re.match(r"^42(\d+)\[", packet or "")
                     if ack:
-                        error = json.dumps([too_large().body()], ensure_ascii=False)
+                        body = AppError("PAYLOAD_TOO_LARGE").body(scope_locale(scope))
+                        error = json.dumps([body], ensure_ascii=False)
                         await send(
                             {"type": "websocket.send", "text": f"43{ack[1]}{error}"}
                         )
@@ -95,18 +125,70 @@ class PayloadLimit:
         await self.application(scope, receive, send)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, vlm: Vlm | None = None, rig: Rig = rig_sprite,
+    mailer: Mailer | None = None, payments: Payments | None = None,
+) -> FastAPI:
+    """vlm and rig can be replaced by fakes in tests."""
     settings = settings or Settings()
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
+        settings.sprites_dir.mkdir(parents=True, exist_ok=True)
         connection = connect(settings.db_path)
-        application.state.repo = Repository(connection, settings)
+        application.state.repo = Repository(connection)
+        world = config.limits["world"]
+        application.state.repo.ensure_world(world["bounds_w"], world["bounds_h"])
+        ensure_builtin_sprites(application.state.repo, settings.sprites_dir)
+        http = httpx.AsyncClient()
+        sim = application.state.sim = SimBridge(
+            settings, config, lambda: application.state.repo, application.state.realtime
+        )
+        await sim.start()
+        application.state.alive = AliveService(
+            settings,
+            config,
+            lambda: application.state.repo,
+            application.state.realtime,
+            vlm or build_vlm(http),
+            rig,
+            on_spawn=lambda entity: sim.spawn(entity["id"]),
+        )
+        application.state.alive.start()
+        billing = application.state.billing = Billing(
+            settings, config, lambda: application.state.repo,
+            payments or build_payments(http, settings.yookassa_shop_id, settings.yookassa_secret_key),
+            application.state.realtime, sim,
+        )  # fmt: skip
+        await billing.sweep()
+        retention = application.state.retention = Retention(
+            lambda: application.state.repo, settings.sprites_dir, config.limits["retention_days"]
+        )
+        if settings.sim_mode != "inline":  # tests move the clock and sweep themselves
+            billing.start()
+            retention.start()
         try:
             yield
         finally:
+            await retention.stop()
+            await billing.stop()
+            await application.state.alive.stop()
+            await sim.stop()
+            await http.aclose()
             await application.state.realtime.sio.shutdown()
             connection.close()
+
+    def build_vlm(http: httpx.AsyncClient) -> Vlm:
+        if not (config.flags.vlm.enabled and settings.vlm_api_key):
+            return UnavailableVlm()
+        repo = lambda: application.state.repo  # noqa: E731
+        budget = Budget(
+            config.vlm["daily_budget_usd"],
+            lambda key: repo().get_metric(key),
+            lambda key, amount: repo().add_metric(key, amount),
+        )
+        prompt = load_prompt(settings.config_dir.parent / "prompts" / "classify.md")
+        return OpenRouterVlm(http, config.vlm, settings.vlm_api_key, prompt, budget)
 
     application = FastAPI(
         title="CollabPad API",
@@ -115,12 +197,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         responses={400: {"model": ErrorOut}, 404: {"model": ErrorOut}},
     )
     application.state.settings = settings
-    application.state.realtime = Realtime(settings, lambda: application.state.repo)
-    create_limit = SlidingWindow(settings.canvas_create_limit)
+    application.state.config = config = GameConfig(settings.config_dir)
+    application.state.realtime = Realtime(
+        settings, config, lambda: application.state.repo
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.origins,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Content-Type"],
     )
 
@@ -132,17 +216,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["X-Frame-Options"] = "DENY"
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
+        elif request.url.path.startswith("/sprites/") and response.status_code == 200:
+            # Sprite files never change once written.
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
     @application.exception_handler(AppError)
     async def app_error(request: Request, exc: AppError) -> JSONResponse:
-        return JSONResponse(exc.body(), status_code=exc.http_status)
+        return JSONResponse(exc.body(request_locale(request)), status_code=exc.http_status)
 
     @application.exception_handler(RequestValidationError)
     async def request_error(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
-        return JSONResponse(validation_error(exc).body(), status_code=400)
+        return JSONResponse(
+            validation_error(exc).body(request_locale(request)), status_code=400
+        )
 
     @application.exception_handler(Exception)
     async def internal_error(request: Request, exc: Exception) -> JSONResponse:
@@ -150,74 +239,106 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "Unhandled application error", exc_info=(type(exc), exc, exc.__traceback__)
         )
         return JSONResponse(
-            AppError("INTERNAL", "Ошибка сервера.").body(), status_code=500
+            AppError("INTERNAL").body(request_locale(request)), status_code=500
         )
 
     @application.get("/api/health")
     async def health() -> dict[str, bool]:
         return {"ok": True}
 
-    @application.post("/api/canvases", status_code=201, response_model=CanvasCreated)
-    async def create_canvas(request: Request) -> dict[str, Any]:
-        # Uvicorn trusts forwarding headers from loopback only. No IP persistence.
-        key = request.client.host if request.client else "local"
-        if not create_limit.consume(key):
-            raise AppError(
-                "RATE_LIMITED",
-                "Подожди немного перед созданием нового холста.",
-                http_status=429,
-            )
-        canvas = application.state.repo.create_canvas()
+    @application.get("/api/canvases/{canvas_id}", response_model=CanvasOut)
+    async def get_canvas(
+        request: Request, canvas_id: str, session: Annotated[dict[str, Any], Depends(ensure_session)]
+    ) -> dict[str, Any]:
+        canvas = application.state.repo.get_canvas(check_id(canvas_id))
+        role = require_role(request, canvas, session, "viewer")
         return {
             "id": canvas["id"],
-            "url": f"/c/{canvas['id']}",
-            "width": canvas["width"],
-            "height": canvas["height"],
-        }
-
-    @application.get("/api/canvases/{canvas_id}", response_model=CanvasOut)
-    async def get_canvas(canvas_id: str) -> dict[str, Any]:
-        canvas = application.state.repo.get_canvas(check_id(canvas_id))
-        return {
-            **canvas,
-            "max_strokes": settings.max_strokes_per_canvas,
+            "kind": canvas["kind"],
+            "title": canvas["title"],
+            "role": role,
+            "owner": bool(session["user_id"]) and canvas["owner_user_id"] == session["user_id"],
+            "frozen": bool(canvas["frozen"]),
+            "bounds": {"w": canvas["bounds_w"], "h": canvas["bounds_h"]},
+            "spawn": {"x": canvas["bounds_w"] / 2, "y": canvas["bounds_h"] / 2},
+            "limits": {
+                "brush_width_min": settings.brush_width_min,
+                "brush_width_max": settings.brush_width_max,
+                "max_points_per_stroke": settings.max_points_per_stroke,
+                "max_payload_bytes": settings.max_payload_bytes,
+                "simplify_epsilon": settings.simplify_epsilon,
+                "chunk_size": config.limits["world"]["chunk_size"],
+                "max_chunks": config.limits["viewport"]["max_chunks"],
+            },
             "palette": settings.colors,
-            "brush_width_min": settings.brush_width_min,
-            "brush_width_max": settings.brush_width_max,
-            "max_points_per_stroke": settings.max_points_per_stroke,
-            "max_payload_bytes": settings.max_payload_bytes,
-            "simplify_epsilon": settings.simplify_epsilon,
-            "name_max_len": settings.name_max_len,
-            "strokes": application.state.repo.list_strokes(canvas_id),
         }
 
-    @application.get("/api/canvases/{canvas_id}/strokes", response_model=StrokesOut)
-    async def get_strokes(
-        canvas_id: str, after_seq: Annotated[int, Query(alias="afterSeq", ge=0)] = 0
+    @application.get(
+        "/api/canvases/{canvas_id}/chunks/{cx}/{cy}", response_model=ChunkOut
+    )
+    async def get_chunk(
+        canvas_id: str,
+        cx: Annotated[int, Path(ge=0)],
+        cy: Annotated[int, Path(ge=0)],
+        request: Request,
+        session: Annotated[dict[str, Any], Depends(ensure_session)],
+        after_seq: Annotated[int, Query(alias="afterSeq", ge=0)] = 0,
     ) -> dict[str, Any]:
-        application.state.repo.get_canvas(check_id(canvas_id))
-        return {"strokes": application.state.repo.list_strokes(canvas_id, after_seq)}
+        repo = application.state.repo
+        canvas = repo.get_canvas(check_id(canvas_id))
+        require_role(request, canvas, session, "viewer")
+        size = config.limits["world"]["chunk_size"]
+        if cx * size >= canvas["bounds_w"] or cy * size >= canvas["bounds_h"]:
+            raise AppError("NOT_FOUND")
+        # No await between these reads: lastSeq is a consistent watermark.
+        return {
+            "strokes": repo.chunk_strokes(canvas_id, cx, cy, after_seq),
+            "fates": repo.chunk_fates(canvas_id, cx, cy),
+            "entities": (
+                repo.living_in_rect if settings.sim_mode == "off" else application.state.sim.entities_in
+            )(canvas_id, cx * size, cy * size, (cx + 1) * size, (cy + 1) * size),
+            "fossils": repo.chunk_fossils(
+                canvas_id, cx * size, cy * size, (cx + 1) * size, (cy + 1) * size
+            ),
+            "last_seq": canvas["stroke_count"],
+            "tick": 0,
+        }
 
     @application.post("/api/metrics/{key}", status_code=204)
     async def metric(key: str) -> Response:
-        if key not in {"pro-click", "stroke-buy-click"}:
-            raise AppError("NOT_FOUND", "Такой метрики нет.", http_status=404)
+        if key not in METRIC_KEYS:
+            raise AppError("NOT_FOUND")
         application.state.repo.increment_metric(key)
         return Response(status_code=204)
 
+    application.state.mailer = mailer or build_mailer(settings)
+    application.include_router(auth_router(config.limits["auth"]["magic_link_rate"]))
+    application.include_router(access_router())
+    application.include_router(billing_router())
+    application.include_router(create_router())
+
     # API routes precede static mounting and explicit SPA routes.
-    assets = settings.static_dir / "assets"
     application.mount(
-        "/assets", StaticFiles(directory=assets, check_dir=False), name="assets"
+        "/sprites", StaticFiles(directory=settings.sprites_dir, check_dir=False), name="sprites"
     )
+    assets = settings.static_dir / "assets"
+    if assets.is_dir():
+        application.mount("/assets", StaticFiles(directory=assets), name="assets")
+
+    @application.get("/c/{canvas_id}", include_in_schema=False)
+    async def legacy_canvas_link(canvas_id: str) -> Response:
+        return RedirectResponse("/w", status_code=302)
 
     @application.get("/", include_in_schema=False)
-    @application.get("/c/{canvas_id}", include_in_schema=False)
-    async def index() -> Response:
+    @application.get("/w", include_in_schema=False)
+    @application.get("/p/{slug}", include_in_schema=False)
+    @application.get("/plans", include_in_schema=False)
+    @application.get("/billing/return", include_in_schema=False)
+    async def index(request: Request) -> Response:
         path = settings.static_dir / "index.html"
         if not path.is_file():
             return Response(
-                "Фронтенд ещё не собран. Выполни npm run build в папке web.",
+                translate(request_locale(request), "page.frontend_missing"),
                 status_code=503,
             )
         return FileResponse(path, headers={"Cache-Control": "no-cache"})

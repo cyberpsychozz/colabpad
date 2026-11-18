@@ -1,0 +1,8 @@
+# Feature flags (AGENTS.md §0.5). Everything must boot with all of them off.
+ads:
+  enabled: false
+billing:
+  recurring: false
+vlm:
+  enabled: true
+sleep_catchup: true

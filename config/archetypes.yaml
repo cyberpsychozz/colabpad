@@ -1,0 +1,98 @@
+# Object types as presets of ECS components (AGENTS.md §3). The VLM fills in the
+# parameters marked "from_vlm"; everything else comes from here and balance.yaml.
+creature:
+  title: {ru: Существо, en: Creature}
+  components:
+    Locomotion: {mode: from_vlm, default: walk}
+    Needs: {}
+    Diet: {kind: from_vlm, default: plants}
+    Temper: {kind: skittish}
+    Health: {hp: 100}
+    Edible: {nutrition: 50}
+    Reproduce: {}
+predator:
+  title: {ru: Хищник, en: Predator}
+  components:
+    Locomotion: {mode: from_vlm, default: walk}
+    Needs: {}
+    Diet: {kind: meat}
+    Temper: {kind: hostile}
+    Health: {hp: 150}
+    Reproduce: {}
+aquatic:
+  title: {ru: Водное, en: Aquatic}
+  components:
+    Locomotion: {mode: swim}
+    Needs: {thirst: false}
+    Diet: {kind: omni}
+    Temper: {kind: passive}
+    Health: {hp: 60}
+    Edible: {nutrition: 50}
+    Reproduce: {}
+person:
+  title: {ru: Человек, en: Person}
+  components:
+    Locomotion: {mode: walk}
+    Needs: {}
+    Diet: {kind: omni}
+    Temper: {kind: passive}
+    Health: {hp: 100}
+    Role: {kind: from_vlm, default: villager}
+    Reproduce: {needs_shelter: true}
+food:
+  title: {ru: Еда, en: Food}
+  components:
+    Locomotion: {mode: none}
+    Edible: {nutrition: from_label, default: 30}
+    Flammable: {cooks: true}
+plant:
+  title: {ru: Растение, en: Plant}
+  components:
+    Locomotion: {mode: none}
+    Health: {hp: 100}
+    Flammable: {}
+    Edible: {variant: pasture}
+water:
+  title: {ru: Вода, en: Water}
+  components:
+    Locomotion: {mode: none}
+    Area: {}
+house:
+  title: {ru: Дом, en: House}
+  components:
+    Locomotion: {mode: none}
+    Health: {hp: 200}
+    Shelter: {capacity: 4}
+    Flammable: {}
+explosive:
+  title: {ru: Взрывчатка, en: Explosive}
+  components:
+    Locomotion: {mode: none}
+    Fuse: {}
+vehicle:
+  title: {ru: Транспорт, en: Vehicle}
+  components:
+    Locomotion: {mode: none}
+    Health: {hp: 200}
+    Controllable: {medium: from_vlm, default: land}
+remote:
+  title: {ru: Пульт, en: Remote}
+  components:
+    Locomotion: {mode: none}
+    Controller: {}
+fire:
+  title: {ru: Огонь, en: Fire}
+  components:
+    Locomotion: {mode: none}
+    Fire: {kind: from_vlm, default: spreads}
+sky:
+  title: {ru: Облако/Солнце, en: Cloud/Sun}
+  components:
+    Locomotion: {mode: none}
+    Weather: {kind: from_vlm, default: rain}
+doodle:
+  title: {ru: Живая каракуля, en: Living scribble}
+  components:
+    Locomotion: {mode: hop}
+    Health: {hp: 50}
+    Edible: {nutrition: 10, omnivores_only: true}

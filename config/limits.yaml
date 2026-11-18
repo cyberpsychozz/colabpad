@@ -1,0 +1,55 @@
+# Sizes, quotas and rate limits. Rates are "count/seconds".
+world:
+  # Shared world size in px: about 10 x 10 desktop screens (1920x1080) at 100% zoom,
+  # rounded to whole chunks (19 x 11). Applied to the shared world at every startup,
+  # so it can be changed here later. Growing is safe; shrinking leaves existing
+  # strokes outside the bounds (they stay stored, the camera just cannot reach them).
+  bounds_w: 19456
+  bounds_h: 11264
+  chunk_size: 1024
+private_world:
+  bounds_w: 19456
+  bounds_h: 11264
+  max_per_user: 5
+viewport:
+  max_chunks: 12
+  rate: 4/1
+stroke:
+  rate: 30/10
+alive:
+  quota_per_day: {anon: 10, free: 20, plus: 50}
+  # Quota days roll over at Moscow midnight (UTC+3, no daylight saving).
+  quota_utc_offset_hours: 3
+  min_interval_s: 5
+  lasso_points: {min: 3, max: 500}
+  bbox_max: 1024
+  strokes: {min: 1, max: 400}
+  inside_ratio: 0.7
+  raster_long_side: 512
+  raster_pad: 8
+  confidence_min: 0.6
+  choose_timeout_s: 20
+  hard_timeout_s: 25
+  queue: {concurrency: 4, max_queued: 100}
+population:
+  per_label_per_chunk: 8
+  living_per_chunk: 60
+  living_per_world: 20000
+interact:
+  rate: 5/1
+  cursor_radius: 64
+  draggable: [food, explosive, remote, doodle]
+control:
+  lease_s: 60
+  input_rate: 20/1
+  bind_radius: 400
+worlds:
+  max_private: 5
+  max_members: 50
+auth:
+  magic_link_ttl_min: 15
+  magic_link_rate: 3/600
+retention_days:
+  alive_job: 30
+  sprite_after_death: 7
+  world_event: 90
