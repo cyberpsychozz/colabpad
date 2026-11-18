@@ -162,8 +162,10 @@ export async function openWorld(root, canvasId) {
     if (lasso?.closed) {
       const xs = lasso.points.map(p => p[0]), ys = lasso.points.map(p => p[1]);
       const [sx, sy] = camera.toScreen((Math.min(...xs) + Math.max(...xs)) / 2, Math.max(...ys));
-      lassoPanel.style.left = `${Math.max(60, Math.min(camera.viewW - 60, sx))}px`;
-      lassoPanel.style.top = `${Math.max(8, Math.min(camera.viewH - 60, sy + 12))}px`;
+      // Keep the whole panel on screen: clamp by its real size, not a guess.
+      const half = lassoPanel.offsetWidth / 2 + 8;
+      lassoPanel.style.left = `${Math.max(half, Math.min(camera.viewW - half, sx))}px`;
+      lassoPanel.style.top = `${Math.max(8, Math.min(camera.viewH - lassoPanel.offsetHeight - 8, sy + 12))}px`;
     }
     refreshText();
   }

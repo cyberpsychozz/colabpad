@@ -1214,7 +1214,9 @@ footer {
 .lasso-panel {
   flex-wrap:wrap;
   justify-content:center;
-  max-width:380px
+  /* Its own width, even near the right edge, where an absolute box would otherwise shrink. */
+  width:max-content;
+  max-width:min(380px,calc(100vw - 16px))
 }
 .alive-main {
   display:flex;

@@ -266,7 +266,7 @@ def test_daily_quota_and_moscow_midnight(make: Any) -> None:
     assert denied.status_code == 429
     assert denied.json()["error"] == {
         "code": "QUOTA_EXCEEDED", "message": "✨ на сегодня закончились", "field": None,
-        "retryable": False, "details": {"used": 2, "limit": 2, "plan": "anon"},
+        "retryable": False, "details": {"used": 2, "limit": 2, "plan": "anon", "more": 18},  # free (20) minus anon (2)
     }  # fmt: skip
     # Another visitor has their own quota.
     other = TestClient(create_asgi(world.app))

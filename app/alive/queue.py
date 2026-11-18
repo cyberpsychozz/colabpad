@@ -120,6 +120,16 @@ class AliveService:
         used = repo.quota_used(repo.subject_of(session), self.day())
         return {"used": used, "limit": self.limits["quota_per_day"][plan], "plan": plan}
 
+    def upgrade_hint(self, plan: str) -> dict[str, int]:
+        """What the next plan would give, for the "out of ✨" hint: signing in adds `more`
+        a day; Plus allows `plusLimit` a day."""
+        limits = self.limits["quota_per_day"]
+        if plan == "anon":
+            return {"more": limits["free"] - limits["anon"]}
+        if plan == "free":
+            return {"plusLimit": limits["plus"]}
+        return {}
+
     # ---- step 1-3: request
 
     def submit(
@@ -133,7 +143,7 @@ class AliveService:
         quota = self.quota(session)
         # Jobs still running count, so a burst cannot overspend the day.
         if quota["used"] + self.inflight[subject] >= quota["limit"]:
-            raise AppError("QUOTA_EXCEEDED", details=quota)
+            raise AppError("QUOTA_EXCEEDED", details={**quota, **self.upgrade_hint(quota["plan"])})
         last = self.last_request.get(subject)
         if last is not None and self.monotonic() - last < self.limits["min_interval_s"]:
             raise AppError("RATE_LIMITED")

@@ -69,7 +69,7 @@ export function createControl({ sync, stage, entities, onChange }) {
       else if (reply.unbound) toast(t('control.unbound'));
       else if (reply.error?.code === 'CONTROL_TAKEN') {
         const { name, seconds } = reply.error.details;
-        toast(t('control.taken', { name: name || t('control.someone'), s: seconds }), 4000);
+        toast(name ? t('control.taken', { name, s: seconds }) : t('control.taken.anon', { s: seconds }), 4000);
       } else toast(t('err.INTERNAL'));
     } catch { toast(t('err.NETWORK')); }
   }

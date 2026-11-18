@@ -56,8 +56,14 @@
   "err.FORBIDDEN_ROLE": "Only editors of this world can bring drawings to life",
   "err.NOT_FOUND": "This world doesn't exist",
   "err.QUOTA_EXCEEDED": "You're out of ✨ for today. {hint}",
-  "err.QUOTA_EXCEEDED.hint.anon": "Sign in to get 10 more",
-  "err.QUOTA_EXCEEDED.hint.free": "Plus: 50 a day",
+  "err.QUOTA_EXCEEDED.hint.anon": {
+    "one": "Sign in to get {n} more",
+    "other": "Sign in to get {n} more"
+  },
+  "err.QUOTA_EXCEEDED.hint.free": {
+    "one": "Plus: {n} a day",
+    "other": "Plus: {n} a day"
+  },
   "err.RATE_LIMITED": "Wait a couple of seconds",
   "err.SELECTION_EMPTY": "Draw a loop around a drawing",
   "err.SELECTION_TOO_LARGE": "That's too big — loop just one thing",
@@ -95,7 +101,7 @@
   "err.CONTROL_TAKEN": "Someone else is driving right now",
   "err.PAYLOAD_TOO_LARGE": "The message is too large",
   "err.NOT_JOINED": "Connect to the world first",
-  "control.someone": "someone",
+  "control.taken.anon": "Someone is driving — {s} s left",
   "control.hint": "Drive with WASD or the arrow keys",
   "dialog.close": "Close",
   "ads.label": "Advertisement",

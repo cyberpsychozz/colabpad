@@ -31,6 +31,10 @@ recognition put an OpenRouter key in `.env` as `VLM_API_KEY`; models and the $5/
 | T22 | ad slots, adblock detector and gate (`web/src/ads.js`, `web/src/ui/gate.js`) |
 | T23 | quotas per Moscow day, refunds, rate limits, free/Plus limits |
 | T24 | catalogs, switch, locale saved in session and account, e-mails. Not done: fuller landing copy |
+| T25 | `scripts/loadtest.py` (real server, 2 000 entities, 50 WebSocket clients); report in `docs/agent/loadtest.md` |
+| T26 | §12 walked in two browser clients (one RU, one EN), see "Scenario run" below |
+| T27 | `docs/agent/deploy.md`; backups mirror `sprites/`; systemd `KillMode=mixed` |
+| §5 / §8 extras | daily retention pass (`app/retention.py`), `GET /api/me/events?since=`, sign-in returns to the world it started from |
 
 Local development without SMTP: mail (sign-in links, invitations) is printed to the server log
 (`ConsoleMailer`). Without YooKassa test keys checkout answers `PAYMENT_FAILED`; a key that does
@@ -38,14 +42,37 @@ not start with `test_` is refused on purpose.
 
 ## Not done
 
-- **T7** accuracy run over 60+ drawings: needs a real VLM key and budget.
-- **T25** load test script (2 000 entities, 50 clients).
-- **T26** the §12 scenarios end to end, balance.
-- **T27** `docs/agent/deploy.md` (must mention: `SMTP_*`, `ADS_BLOCK_*`, YooKassa webhook URL
-  `/api/billing/webhook`, uvicorn already runs with `--proxy-headers` so the IP allowlist sees
-  the real client address).
-- Retention job (§5), `GET /api/me/events`.
-- After sign-in the callback always redirects to `/w`, not back to the world the user came from.
+- **T7** accuracy run over 60+ drawings: needs a real VLM key, a budget and a set of test
+  drawings (RU and EN handwriting included). Not started.
+- Balance tuning beyond the brief's defaults (part of T26): nothing was changed.
+
+## Scenario run (T26, 2026-11-18)
+
+Two clients in the built-in browser on a throwaway database (`127.0.0.1` and `localhost` give
+two sessions), client A in EN then RU, client B in RU. The VLM key was blanked on purpose, so
+every ALIVE went through the manual grid (§12.8). Seen working:
+
+- strokes in both clients; goo in both (B's stages in Russian); the grid; the 20 s auto-pick
+  (falls back to the scribble without a VLM); name tags in each client's own language;
+- the ALIVE 5 s rate limit message; the 11th ALIVE → `QUOTA_EXCEEDED` with the sign-in hint,
+  now with the Russian plural («ещё 10 оживлений»), `<html lang>` and title following the locale;
+- a car and a remote: B claims the remote, drives with held WASD (lease extends), A gets
+  "Someone is driving — 49 s left", B lets go;
+- a grenade: countdown visible, explosion after 20 s, the stroke 112 px from the centre of a
+  118.5 px blast got `destroyed`, the one at 120 px stayed static;
+- `kill -9` of the simulation process: restarted within a second, world carried on;
+- magic-link sign-in (link from the log), Plus granted in the DB (no YooKassa test keys here),
+  private world created, link access Player: the guest sees only the hand tool, can pet
+  (and the server refuses `stroke:add` and ALIVE with `FORBIDDEN_ROLE`);
+- subscription expired → both clients reload into the frozen world with `canvas.frozen` and
+  the owner as viewer; reactivated → unfrozen (the minute sweep picked both up).
+
+Not walked: §12.2/3/4/7 (behaviour over minutes: unit-tested per ● cell), §12.10's payment
+itself and §12.12's gate (no test shop keys, no ad blocker in the pane).
+
+Fixed on the way: a guest without a name made "someone is driving" start in lower case (now a
+whole sentence of its own), the quota hint had no plural forms, and the ALIVE panel shrank
+into a narrow column near the right edge.
 
 ## Not verified
 
@@ -55,8 +82,7 @@ not start with `test_` is refused on purpose.
 
 - `docker compose up --build`: the Docker daemon was not running. The Dockerfile now installs
   `libfontconfig1 libgl1 libegl1` for skia-python and copies `config/` and `prompts/`.
-- Driving in the browser (remote, WASD, stick): server and store logic are tested, the overlay
-  was not clicked through.
+- Driving with the on-screen stick (touch); WASD was driven in the browser.
 - Entity animation frames with real part boxes (legs, wheels): the rig is unit-tested; in the
   browser only drawings typed through the manual grid (no parts, so they hop) were seen.
 
@@ -89,8 +115,26 @@ not start with `test_` is refused on purpose.
   `GET /api/canvases` lists my worlds; `WORLD_LIMIT` is an added error code.
 - Losing access disconnects the socket (`Realtime.recheck`); `canvas:frozen` makes clients reload.
 - Hand tool: click pets (or claims a remote), double click pushes, drag carries.
+- `world:delta` is one message per client per tick: `{tick, chunks: [{cx, cy, upd, gone,
+  enter}]}`, each chunk encoded once and joined per client (`Realtime.emit_deltas`).
+  Per-chunk messages made main spend its time compressing ~6 000 sends a second at 50
+  clients (control latency 240–450 ms). socketio's binary scan is off (`TextPacket`).
+- The 5 Hz fallback goes back to 10 Hz once a 100-tick window's p95 is under 30 ms; the
+  simulation logs its tick times every `SIM_STATS_INTERVAL_S` (60 s).
+- Retention keeps built-in sprites and never touches strokes, fates or payments; an expired
+  sprite keeps its row with the paths set to NULL.
+- `/api/me/events?since=` (unix ms) lists events whose actors include an entity the caller's
+  session or account brought to life, or a child of one; 100 per page, `next` for paging.
+  World events now store every entity they name (`actors`).
+- The magic link carries `next` (only `/w`, `/plans` or `/p/{slug}`) to land where sign-in
+  started.
+- The out-of-quota error's `details` add `more` (anonymous: what signing in adds) or
+  `plusLimit` (free), for the plural hint.
 
 ## Open questions for the human
 
 - Playwright for the §12 scenarios: approved or not?
-- A VLM key and budget for T7.
+- T7: may the agent spend from the OpenRouter key in `.env` (about $0.004 a drawing, so well
+  under $1 for 60–100 drawings), and should it draw the test set itself (synthetic strokes)?
+- Bandwidth: about 50–90 KiB/s per player at 440 visible entities. Short entity handles in
+  deltas would roughly halve it (see `docs/agent/loadtest.md`). Worth doing before launch?

@@ -58,8 +58,18 @@
   "err.FORBIDDEN_ROLE": "Оживлять могут только редакторы этого мира",
   "err.NOT_FOUND": "Такого мира нет",
   "err.QUOTA_EXCEEDED": "✨ на сегодня закончились. {hint}",
-  "err.QUOTA_EXCEEDED.hint.anon": "Войди — и получишь ещё 10",
-  "err.QUOTA_EXCEEDED.hint.free": "«Плюс»: 50 в день",
+  "err.QUOTA_EXCEEDED.hint.anon": {
+    "one": "Войди — и получишь ещё {n} оживление",
+    "few": "Войди — и получишь ещё {n} оживления",
+    "many": "Войди — и получишь ещё {n} оживлений",
+    "other": "Войди — и получишь ещё {n} оживления"
+  },
+  "err.QUOTA_EXCEEDED.hint.free": {
+    "one": "«Плюс»: {n} оживление в день",
+    "few": "«Плюс»: {n} оживления в день",
+    "many": "«Плюс»: {n} оживлений в день",
+    "other": "«Плюс»: {n} оживления в день"
+  },
   "err.RATE_LIMITED": "Подожди пару секунд",
   "err.SELECTION_EMPTY": "Обведи рисунок",
   "err.SELECTION_TOO_LARGE": "Слишком большой рисунок — обведи что-то одно",
@@ -97,7 +107,7 @@
   "err.CONTROL_TAKEN": "Сейчас рулит кто-то другой",
   "err.PAYLOAD_TOO_LARGE": "Сообщение слишком большое",
   "err.NOT_JOINED": "Сначала подключись к миру",
-  "control.someone": "кто-то",
+  "control.taken.anon": "Сейчас рулит кто-то — ещё {s} с",
   "control.hint": "Рули: WASD или стрелки",
   "dialog.close": "Закрыть",
   "ads.label": "Реклама",
