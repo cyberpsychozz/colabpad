@@ -11,3 +11,5 @@ app/static/
 coverage/
 *.log
 .DS_Store
+web/.e2e-*/
+web/test-results/
