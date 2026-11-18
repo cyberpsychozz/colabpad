@@ -34,7 +34,7 @@ def test_alive_entities_enter_the_world_and_their_state_is_persisted(make: Any) 
     sim.send({"op": "interact", "canvas": "world", "id": entity_id, "action": "push", "to": [100, 200]})
     world.events.clear()
     on_loop(client, step(world, 5.2))
-    deltas = [data for name, data, rooms in world.events if name == "world:delta"]
+    deltas = [chunk for name, data, rooms in world.events if name == "world:delta" for chunk in data["chunks"]]
     # The shove moved it 40 px away from the cursor; after that it lives its own life.
     assert deltas and deltas[0]["upd"][0][0] == entity_id and deltas[0]["upd"][0][1] > 235
     moved_x = sim.live[entity_id]["x"]

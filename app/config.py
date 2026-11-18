@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     public_url: str = "http://localhost:8000"
     # process: the world runs in its own process. inline: stepped by tests. off: no world.
     sim_mode: str = Field("process", pattern="^(process|inline|off)$")
+    # How often the simulation reports its tick times (logged by main); the load test lowers it.
+    sim_stats_interval_s: float = Field(60, gt=0)
     smtp_host: str = ""
     smtp_port: int = 465
     smtp_from: str = ""

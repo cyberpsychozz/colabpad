@@ -29,7 +29,12 @@ class World:
         async def record(event: str, data: dict[str, Any], rooms: list[str]) -> None:
             self.events.append((event, data, rooms))
 
+        async def record_deltas(canvas_id: str, tick: int, chunks: list[dict[str, Any]]) -> None:
+            rooms = [f"{canvas_id}:{chunk['cx']}:{chunk['cy']}" for chunk in chunks]
+            self.events.append(("world:delta", {"tick": tick, "chunks": chunks}, rooms))
+
         self.app.state.realtime.emit = record
+        self.app.state.realtime.emit_deltas = record_deltas
 
     def draw(self, offset: float = 0) -> list[int]:
         """A little drawing of three strokes inside LASSO (shifted right by offset)."""

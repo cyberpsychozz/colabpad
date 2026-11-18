@@ -105,7 +105,8 @@ export async function openWorld(root, canvasId) {
   // Everything the server tells us about the living world.
   function worldEvent(name, data) {
     const now = performance.now();
-    if (name === 'world:delta') entities.applyDelta(data, now);
+    // One world:delta per tick, with a part for every watched chunk that changed.
+    if (name === 'world:delta') for (const chunk of data.chunks) entities.applyDelta(chunk, now);
     else if (name === 'world:snapshot') {
       if (store.get(data.cx, data.cy)) entities.setChunk(data.cx, data.cy, data.entities);
     } else if (name === 'world:event') {

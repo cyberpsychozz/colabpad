@@ -30,7 +30,7 @@ export class EntityStore {
     for (const entity of list) this.put(entity);
   }
 
-  // world:delta for one chunk: full entities that entered, compact updates, ids that left.
+  // One chunk's part of a world:delta: full entities that entered, compact updates, ids that left.
   applyDelta({ cx, cy, upd, gone, enter = [] }, now) {
     const key = chunkKey(cx, cy);
     for (const entity of enter) this.put(entity);

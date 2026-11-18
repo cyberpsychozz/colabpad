@@ -72,11 +72,40 @@ class SimCore:
         return out
 
 
-def run(inbox: Any, outbox: Any, config_dir: str) -> None:
-    """Process entry point. Falls back to 5 Hz if ticks do not fit their budget."""
+def next_rate(hz: int, full_hz: int, p95_s: float) -> int:
+    """The tick rate after a window of 100 ticks. Over budget: drop to 5 Hz (clients
+    interpolate). A busy host can stall us for a moment, so go back up once ticks are
+    comfortably inside the budget again (half of it, so the rate does not flap)."""
+    if hz > FALLBACK_HZ and p95_s > TICK_BUDGET_S:
+        return FALLBACK_HZ
+    if hz < full_hz and p95_s < TICK_BUDGET_S / 2:
+        return full_hz
+    return hz
+
+
+def tick_stats(core: SimCore, hz: int, durations: list[float]) -> dict[str, Any]:
+    """What the process reports every so often: tick times and how much is alive."""
+    ordered = sorted(durations) or [0.0]
+
+    def ms(q: float) -> float:
+        return round(ordered[min(len(ordered) - 1, int(len(ordered) * q))] * 1000, 1)
+
+    worlds = core.worlds.values()
+    return {
+        "op": "stats", "hz": hz, "ticks": len(durations), "p50_ms": ms(0.5), "p95_ms": ms(0.95),
+        "max_ms": round(ordered[-1] * 1000, 1),
+        "entities": sum(len(world.entities) for world in worlds),
+        "active": sum(int(world.active.sum()) for world in worlds),
+    }  # fmt: skip
+
+
+def run(inbox: Any, outbox: Any, config_dir: str, stats_interval_s: float = 60) -> None:
+    """Process entry point. Falls back to 5 Hz while ticks do not fit their budget."""
     core = SimCore(GameConfig(Path(config_dir)))
     hz = core.config.balance["tick_hz"]
     recent: deque[float] = deque(maxlen=100)
+    window: list[float] = []
+    next_stats = time.monotonic() + stats_interval_s
     next_tick = time.monotonic()
     while True:
         while True:
@@ -91,9 +120,15 @@ def run(inbox: Any, outbox: Any, config_dir: str) -> None:
         started = time.monotonic()
         batch = core.step(1 / hz)
         recent.append(time.monotonic() - started)
-        if len(recent) == recent.maxlen and hz > FALLBACK_HZ:
-            if sorted(recent)[94] > TICK_BUDGET_S:
-                hz = FALLBACK_HZ
+        window.append(recent[-1])
+        if time.monotonic() >= next_stats:
+            batch.append(tick_stats(core, hz, window))
+            window = []
+            next_stats = time.monotonic() + stats_interval_s
+        if len(recent) == recent.maxlen:
+            rate = next_rate(hz, core.config.balance["tick_hz"], sorted(recent)[94])
+            if rate != hz:
+                hz = rate
                 recent.clear()
                 batch.append({"op": "rate", "hz": hz})
         if batch:

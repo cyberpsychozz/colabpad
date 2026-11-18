@@ -22,6 +22,13 @@ from app.repo import Repository
 logger = logging.getLogger(__name__)
 
 
+class TextPacket(socketio.packet.Packet):
+    """We never send binary, so skip socketio's scan of every payload for bytes; on a busy
+    world that recursive scan over each delta row was a large share of main's CPU."""
+
+    uses_binary_events = False
+
+
 class Realtime:
     def __init__(
         self, settings: Settings, config: GameConfig, get_repo: Callable[[], Repository]
@@ -35,6 +42,7 @@ class Realtime:
             cors_allowed_origins=settings.origins,
             max_http_buffer_size=settings.max_payload_bytes,
             async_handlers=False,
+            serializer=TextPacket,
             logger=False,
             engineio_logger=False,
         )
@@ -116,6 +124,30 @@ class Realtime:
     async def emit(self, event: str, data: dict[str, Any], rooms: list[str]) -> None:
         if rooms:
             await self.sio.emit(event, data, room=rooms)
+
+    async def emit_deltas(self, canvas_id: str, tick: int, chunks: list[dict[str, Any]]) -> None:
+        """One world:delta per client per tick, holding every watched chunk that changed.
+
+        Each chunk is encoded once and the pieces are joined per client, instead of one
+        message per chunk per client: a client watching 12 chunks gets 1 message, not 12,
+        which is what keeps compression and socket writes affordable with many clients.
+        """
+        encoded = {
+            (chunk["cx"], chunk["cy"]): json.dumps(chunk, separators=(",", ":"), ensure_ascii=False)
+            for chunk in chunks
+        }
+        for sid, (canvas, watched) in list(self.rooms.viewports.items()):
+            if canvas != canvas_id:
+                continue
+            parts = [encoded[chunk] for chunk in watched if chunk in encoded]
+            if not parts:
+                continue
+            eio_sid = self.sio.manager.eio_sid_from_sid(sid, "/")
+            if eio_sid is None:
+                continue
+            # A Socket.IO EVENT packet on the default namespace: "2" + JSON [name, data].
+            text = f'2["world:delta",{{"tick":{tick},"chunks":[{",".join(parts)}]}}]'
+            await self.sio.eio.send(eio_sid, text)
 
     async def guarded(
         self, sid: str, what: str, handler: Callable[[], Any]

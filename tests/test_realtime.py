@@ -116,3 +116,36 @@ def test_real_socketio_protocol_and_payload_limit(
             and json.loads(ack[3:])[0]["error"]["code"] == "PAYLOAD_TOO_LARGE"
         )
     assert client.post("/api/metrics/plus_clicked", content=b"x" * 65537).status_code == 413
+
+
+def test_each_client_gets_one_delta_per_tick_with_only_its_chunks(application: FastAPI) -> None:
+    realtime = application.state.realtime
+    realtime.rooms.set_viewport("a", "world", frozenset({(0, 0), (1, 0)}))
+    realtime.rooms.set_viewport("b", "world", frozenset({(1, 0), (5, 5)}))
+    realtime.rooms.set_viewport("c", "world", frozenset({(9, 9)}))
+    realtime.rooms.set_viewport("d", "other", frozenset({(0, 0)}))
+    realtime.sio.manager.eio_sid_from_sid = lambda sid, namespace: f"eio-{sid}"
+    sent: dict[str, str] = {}
+
+    async def send(eio_sid: str, text: str) -> None:
+        sent[eio_sid] = text
+
+    realtime.sio.eio.send = send
+    chunks = [
+        {"cx": 0, "cy": 0, "upd": [["e1", 1.5, 2, "wander", "move", 100]], "gone": [], "enter": []},
+        {"cx": 1, "cy": 0, "upd": [], "gone": ["e2"], "enter": [{"id": "ж", "label": {"ru": "корова"}}]},
+    ]
+    asyncio.run(realtime.emit_deltas("world", 42, chunks))
+    assert set(sent) == {"eio-a", "eio-b"}  # c watches nothing that changed, d another canvas
+    for eio_sid, expected in (("eio-a", chunks), ("eio-b", chunks[1:])):
+        assert sent[eio_sid][0] == "2"  # a Socket.IO EVENT on the default namespace
+        name, data = json.loads(sent[eio_sid][1:])
+        assert name == "world:delta" and data["tick"] == 42
+        assert sorted(data["chunks"], key=lambda c: c["cx"]) == expected
+
+
+def test_events_are_encoded_without_a_binary_scan(application: FastAPI) -> None:
+    packet_class = application.state.realtime.sio.packet_class
+    assert packet_class.uses_binary_events is False
+    packet = packet_class(data=["world:event", {"type": "eat", "rows": [[1, 2.5, "ok"]]}])
+    assert packet.encode() == '2["world:event",{"type":"eat","rows":[[1,2.5,"ok"]]}]'

@@ -63,7 +63,9 @@ class ProcessTransport:
     def start(self, deliver: Callable[[list[dict[str, Any]]], None]) -> None:
         self.inbox, self.outbox = self.context.Queue(), self.context.Queue()
         self.process = self.context.Process(
-            target=run, args=(self.inbox, self.outbox, str(self.settings.config_dir)), daemon=True
+            target=run,
+            args=(self.inbox, self.outbox, str(self.settings.config_dir), self.settings.sim_stats_interval_s),
+            daemon=True,
         )
         self.process.start()
         outbox = self.outbox
@@ -121,6 +123,7 @@ class SimBridge:
         self.events_flushed = 0.0
         self.pending: set[asyncio.Future[Any]] = set()
         self.closed = False
+        self.stats: dict[str, Any] = {}
 
     # ---- lifecycle
 
@@ -240,15 +243,22 @@ class SimBridge:
     async def handle(self, batch: list[dict[str, Any]]) -> None:
         if self.closed:
             return
+        deltas: dict[tuple[str, int], list[dict[str, Any]]] = {}
         for message in batch:
             try:
-                await getattr(self, f"on_{message['op']}")(message)
+                if message["op"] == "delta":
+                    deltas.setdefault((message["canvas"], message["tick"]), []).append(self.on_delta(message))
+                else:
+                    await getattr(self, f"on_{message['op']}")(message)
             except Exception:
                 logger.exception("Failed to handle simulation message %s", message.get("op"))
+        for (canvas_id, tick), chunks in deltas.items():
+            await self.realtime.emit_deltas(canvas_id, tick, chunks)
         if self.events and now_ms() - self.events_flushed >= 1000:
             self.flush_events()
 
-    async def on_delta(self, message: dict[str, Any]) -> None:
+    def on_delta(self, message: dict[str, Any]) -> dict[str, Any]:
+        """Track live state; returns this chunk's part of the tick's world:delta."""
         for row in message["upd"]:
             entity = self.live.get(row[0])
             if entity is None:
@@ -256,16 +266,11 @@ class SimBridge:
             entity["x"], entity["y"], entity["state"], entity["anim"], entity["hp"] = row[1:6]
             if len(row) > 6:
                 entity["view"] = row[6]
-        await self.realtime.emit(
-            "world:delta",
-            {
-                "cx": message["cx"], "cy": message["cy"], "tick": message["tick"],
-                "upd": message["upd"], "gone": message["gone"],
-                # Entities that walked into this chunk, in full, for those who did not have them.
-                "enter": [self.live[i] for i in message["enter"] if i in self.live],
-            },  # fmt: skip
-            [room(message["canvas"], (message["cx"], message["cy"]))],
-        )
+        return {
+            "cx": message["cx"], "cy": message["cy"], "upd": message["upd"], "gone": message["gone"],
+            # Entities that walked into this chunk, in full, for those who did not have them.
+            "enter": [self.live[i] for i in message["enter"] if i in self.live],
+        }  # fmt: skip
 
     async def on_event(self, message: dict[str, Any]) -> None:
         payload = {k: v for k, v in message.items() if k not in ("op", "canvas")}
@@ -367,9 +372,20 @@ class SimBridge:
             sorted({room(canvas, (s["cx"], s["cy"])) for s in hit}),
         )
 
+    async def on_stats(self, message: dict[str, Any]) -> None:
+        self.stats = {k: v for k, v in message.items() if k != "op"}
+        logger.warning(
+            "Simulation: %(hz)s Hz, %(entities)s entities (%(active)s active), tick p50 %(p50_ms)s ms,"
+            " p95 %(p95_ms)s ms, max %(max_ms)s ms over %(ticks)s ticks", self.stats,
+        )
+
     async def on_rate(self, message: dict[str, Any]) -> None:
+        slower = message["hz"] < self.hz
         self.hz = message["hz"]
-        logger.warning("Simulation ticks exceeded their budget; running at %s Hz", self.hz)
+        if slower:
+            logger.warning("Simulation ticks exceeded their budget; running at %s Hz", self.hz)
+        else:
+            logger.warning("Simulation ticks fit their budget again; running at %s Hz", self.hz)
 
 
 def reaches(points: list[list[float]], x: float, y: float, radius: float) -> bool:

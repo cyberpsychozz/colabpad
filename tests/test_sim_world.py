@@ -136,3 +136,28 @@ def test_two_thousand_living_entities_fit_the_tick_budget() -> None:
     p95 = min(windows)
     print(f"\n2000 living entities: p95 tick {p95 * 1000:.1f} ms")
     assert int(world.active.sum()) > 1500 and p95 < 0.150
+
+
+def test_tick_stats_report_percentiles_and_counts() -> None:
+    from app.sim.process import SimCore, tick_stats
+    from tests.simkit import CONFIG_DIR
+    from app.config import GameConfig
+
+    core = SimCore(GameConfig(CONFIG_DIR))
+    core.handle({"op": "world", "canvas": "world", "bounds": [19456, 11264]})
+    core.handle({"op": "spawn", "canvas": "world", "entity": row("doodle", 100, 100, locomotion="hop")})
+    core.handle({"op": "chunk", "canvas": "world", "cx": 0, "cy": 0, "on": True})
+    core.step(0.1)
+    stats = tick_stats(core, 10, [i / 1000 for i in range(1, 101)])
+    assert stats["p50_ms"] == 51 and stats["p95_ms"] == 96 and stats["max_ms"] == 100
+    assert stats["entities"] == 1 and stats["active"] == 1 and stats["ticks"] == 100
+
+
+def test_the_tick_rate_falls_back_to_5_hz_and_recovers_when_quiet() -> None:
+    from app.sim.process import next_rate
+
+    assert next_rate(10, 10, 0.059) == 10
+    assert next_rate(10, 10, 0.061) == 5   # over the 60 ms budget
+    assert next_rate(5, 10, 0.045) == 5    # better, but not by enough to go back
+    assert next_rate(5, 10, 0.029) == 10   # comfortably inside again
+    assert next_rate(5, 10, 0.200) == 5
