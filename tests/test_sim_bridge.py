@@ -35,8 +35,11 @@ def test_alive_entities_enter_the_world_and_their_state_is_persisted(make: Any) 
     world.events.clear()
     on_loop(client, step(world, 5.2))
     deltas = [chunk for name, data, rooms in world.events if name == "world:delta" for chunk in data["chunks"]]
+    # Rows name it by its short handle, which every full copy of it carries as `ref`.
+    ref = sim.live[entity_id]["ref"]
+    assert isinstance(ref, int) and client.get("/api/canvases/world/chunks/0/0").json()["entities"][0]["ref"] == ref
     # The shove moved it 40 px away from the cursor; after that it lives its own life.
-    assert deltas and deltas[0]["upd"][0][0] == entity_id and deltas[0]["upd"][0][1] > 235
+    assert deltas and deltas[0]["upd"][0][0] == ref and deltas[0]["upd"][0][1] > 235
     moved_x = sim.live[entity_id]["x"]
     assert moved_x == round(float(core.worlds["world"].x[core.worlds["world"].entities[entity_id].i]), 1)
     # Chunk snapshots come from live state, and the database got the 5-second snapshot.
@@ -106,13 +109,14 @@ def test_a_killed_simulation_process_restarts_and_the_world_resumes(tmp_path: Pa
         while repo.db.execute("SELECT x FROM entity WHERE id='e1'").fetchone()[0] != 500 and time.time() < deadline:
             time.sleep(0.1)
         first = sim.transport.process
+        ref = sim.live["e1"]["ref"]
         first.kill()
         deadline = time.time() + 10
         while (sim.restarts == 0 or not sim.transport.alive()) and time.time() < deadline:
             time.sleep(0.05)
         assert sim.restarts == 1 and sim.transport.process is not first
-        # The world came back from the database and still answers.
-        assert sim.live["e1"]["x"] == 500
+        # The world came back from the database and still answers; clients' handles hold.
+        assert sim.live["e1"]["x"] == 500 and sim.live["e1"]["ref"] == ref
         sim.send({"op": "interact", "canvas": "world", "id": "e1", "action": "drag", "to": [700, 300]})
         assert pushed_to(700)
         assert client.get("/api/health").json() == {"ok": True}

@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EntityStore } from './entities.js';
 
-const entity = (id, x, y, extra = {}) => ({ id, x, y, type: 'creature', w: 40, h: 40, sprite: { sheet: `/sprites/${id}/sheet.png`, manifest: {} }, ...extra });
+const refs = { a: 1, b: 2, c: 3, n: 4, zzz: 99 };
+const entity = (id, x, y, extra = {}) => ({ id, ref: refs[id], x, y, type: 'creature', w: 40, h: 40, sprite: { sheet: `/sprites/${id}/sheet.png`, manifest: {} }, ...extra });
 const make = () => new EntityStore({ size: 1024, loadImage: url => ({ url }) });
 
 test('chunk fetches replace their chunk, spawns add, retain drops distant chunks', () => {
@@ -24,33 +25,33 @@ test('chunk fetches replace their chunk, spawns add, retain drops distant chunks
 test('deltas update state, track direction and animation, and hand entities between chunks', () => {
   const store = make();
   store.setChunk(0, 0, [entity('a', 1000, 100), entity('b', 200, 200)]);
-  store.applyDelta({ cx: 0, cy: 0, upd: [['a', 1010, 100, 'wander', 'move', 90], ['zzz', 1, 1, 'idle', 'idle', 100]], gone: [] }, 500);
+  store.applyDelta({ cx: 0, cy: 0, upd: [[refs.a, 1010, 100, 'wander', 'move', 90], [refs.zzz, 1, 1, 'idle', 'idle', 100]], gone: [] }, 500);
   const a = store.entities.get('a');
   assert.deepEqual([a.x, a.state, a.anim, a.hp, a.dir, a.animStart], [1010, 'wander', 'move', 90, 1, 500]);
   assert.equal(a.rx, 1000);   // the render position follows smoothly
   // It crosses into chunk (1,0): "gone" from (0,0) must not remove it, in either order.
-  store.applyDelta({ cx: 1, cy: 0, upd: [['a', 1030, 100, 'wander', 'move', 90, { scale: 0.6 }]], gone: [] }, 600);
-  store.applyDelta({ cx: 0, cy: 0, upd: [], gone: ['a', 'b'] }, 600);
+  store.applyDelta({ cx: 1, cy: 0, upd: [[refs.a, 1030, 100, 'wander', 'move', 90, { scale: 0.6 }]], gone: [] }, 600);
+  store.applyDelta({ cx: 0, cy: 0, upd: [], gone: [refs.a, refs.b] }, 600);
   assert.ok(store.entities.has('a') && !store.entities.has('b'));
   assert.deepEqual(store.entities.get('a').view, { scale: 0.6 });
   // An entity walking in from an unseen chunk arrives in full.
-  store.applyDelta({ cx: 0, cy: 0, enter: [entity('n', 5, 5)], upd: [['n', 6, 5, 'wander', 'move', 100]], gone: [] }, 700);
+  store.applyDelta({ cx: 0, cy: 0, enter: [entity('n', 5, 5)], upd: [[refs.n, 6, 5, 'wander', 'move', 100]], gone: [] }, 700);
   assert.equal(store.entities.get('n').x, 6);
-  store.applyDelta({ cx: 0, cy: 0, upd: [['a', 900, 100, 'flee', 'move', 90]], gone: [] }, 800);
+  store.applyDelta({ cx: 0, cy: 0, upd: [[refs.a, 900, 100, 'flee', 'move', 90]], gone: [] }, 800);
   assert.equal(store.entities.get('a').dir, -1);
 });
 
 test('render positions ease towards the server, jumps snap, and the dead leave a ghost', () => {
   const store = make();
   store.put(entity('a', 100, 100));
-  store.applyDelta({ cx: 0, cy: 0, upd: [['a', 110, 100, 'wander', 'move', 100]], gone: [] }, 0);
+  store.applyDelta({ cx: 0, cy: 0, upd: [[refs.a, 110, 100, 'wander', 'move', 100]], gone: [] }, 0);
   assert.equal(store.advance(0.016, 16), true);
   const a = store.entities.get('a');
   assert.ok(a.rx > 100 && a.rx < 110);
   for (let i = 0; i < 100; i++) store.advance(0.016, 16 * i);
   assert.equal(a.rx, 110);
   assert.equal(store.advance(0.016, 2000), false);
-  store.applyDelta({ cx: 0, cy: 0, upd: [['a', 700, 100, 'idle', 'idle', 100]], gone: [] }, 2000);
+  store.applyDelta({ cx: 0, cy: 0, upd: [[refs.a, 700, 100, 'idle', 'idle', 100]], gone: [] }, 2000);
   store.advance(0.016, 2016);
   assert.equal(a.rx, 700);
   // Death with a fossil plays out as a ghost; without one the entity is just gone.

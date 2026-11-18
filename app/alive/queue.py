@@ -75,7 +75,7 @@ class AliveService:
         rig: Rig = plain_rig,
         clock: Callable[[], float] = time.time,
         monotonic: Callable[[], float] = time.monotonic,
-        on_spawn: Callable[[dict[str, Any]], None] = lambda entity: None,
+        on_spawn: Callable[[dict[str, Any]], dict[str, Any] | None] = lambda entity: None,
     ) -> None:
         self.settings, self.config, self.get_repo, self.realtime = settings, config, get_repo, realtime
         self.vlm, self.rig, self.clock, self.monotonic, self.on_spawn = vlm, rig, clock, monotonic, on_spawn
@@ -271,10 +271,11 @@ class AliveService:
         await self.realtime.emit(
             "stroke:fate", {"seqs": job.seqs, "fate": "consumed", "entityId": entity["id"]}, job.rooms
         )
+        # Into the world first, so the event carries the live shape (with its delta handle, ref).
+        live = self.on_spawn(entity)
         await self.realtime.emit(
-            "world:event", {"type": "spawn", "jobId": job.id, "entity": entity}, job.rooms
+            "world:event", {"type": "spawn", "jobId": job.id, "entity": live or entity}, job.rooms
         )
-        self.on_spawn(entity)
 
     @staticmethod
     def png(image: Image.Image) -> bytes:

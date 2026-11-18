@@ -8,6 +8,7 @@ export class EntityStore {
   constructor({ size, loadImage }) {
     Object.assign(this, { size, loadImage });
     this.entities = new Map();
+    this.byHandle = new Map(); // world:delta names entities by a short number (ref)
     this.ghosts = [];          // entities playing their death animation
     this.images = new Map();
   }
@@ -16,6 +17,7 @@ export class EntityStore {
 
   // A full entity (a spawn, a snapshot, or one that walked into view).
   put(entity, bornAt = null) {
+    if (entity.ref != null) this.byHandle.set(entity.ref, entity.id);
     const known = this.entities.get(entity.id);
     this.entities.set(entity.id, {
       rx: entity.x, ry: entity.y, dir: 0, animStart: 0, ...known, ...entity,
@@ -30,12 +32,13 @@ export class EntityStore {
     for (const entity of list) this.put(entity);
   }
 
-  // One chunk's part of a world:delta: full entities that entered, compact updates, ids that left.
+  // One chunk's part of a world:delta: full entities that entered, compact updates, and
+  // handles that left. Rows and departures name entities by their handle, ref.
   applyDelta({ cx, cy, upd, gone, enter = [] }, now) {
     const key = chunkKey(cx, cy);
     for (const entity of enter) this.put(entity);
-    for (const [id, x, y, state, anim, hp, view] of upd) {
-      const entity = this.entities.get(id);
+    for (const [ref, x, y, state, anim, hp, view] of upd) {
+      const entity = this.entities.get(this.byHandle.get(ref));
       if (!entity) continue;
       if (Math.abs(x - entity.x) > 0.5) entity.dir = x > entity.x ? 1 : -1;
       if (anim !== entity.anim) entity.animStart = now;
@@ -43,7 +46,10 @@ export class EntityStore {
       if (view) entity.view = view;
     }
     // An id that left this chunk stays if it has since been seen in another one.
-    for (const id of gone) if (this.entities.get(id)?.chunk === key) this.entities.delete(id);
+    for (const ref of gone) {
+      const id = this.byHandle.get(ref);
+      if (this.entities.get(id)?.chunk === key) this.entities.delete(id);
+    }
   }
 
   // A death: with a fossil the body plays its death animation before it goes.

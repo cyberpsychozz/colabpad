@@ -200,8 +200,9 @@ async def control_probe(client: Client, ids: dict[str, str], rounds: int = 10) -
     def listen(name: str, data: Any) -> None:
         if name != "world:delta":
             return
+        # Delta rows name entities by their short handle (ref), not their id.
         for row in (row for chunk in data["chunks"] for row in chunk["upd"]):
-            if row[0] == ids["car"]:
+            if row[0] == ids["car_ref"]:
                 position["x"] = row[1]
                 if moved is not None and not moved.done() and (row[1] - goal[0]) * goal[1] > 0.5:
                     moved.set_result(time.monotonic())
@@ -366,6 +367,9 @@ async def main() -> None:
 
         sampler = asyncio.create_task(sample_cpu())
         print(f"measuring for {args.seconds} s (control probe runs meanwhile)")
+        async with httpx.AsyncClient(base_url=base) as http:
+            chunk = (await http.get("/api/canvases/world/chunks/1/1")).json()
+        ids["car_ref"] = next(e["ref"] for e in chunk["entities"] if e["id"] == ids["car"])
         probe = asyncio.create_task(control_probe(clients[0], ids))
         acks = asyncio.create_task(ack_probe(clients[1], args.seconds - 1))
         await asyncio.sleep(args.seconds)

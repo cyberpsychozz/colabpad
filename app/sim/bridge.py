@@ -124,6 +124,7 @@ class SimBridge:
         self.pending: set[asyncio.Future[Any]] = set()
         self.closed = False
         self.stats: dict[str, Any] = {}
+        self.handles: dict[str, int] = {}
 
     # ---- lifecycle
 
@@ -212,14 +213,25 @@ class SimBridge:
         wire["hp"] = round(row["hp"] / health * 100) if health and row.get("hp") is not None else 100
         wire["view"] = (row["params"].get("data") or {}).get("view") or {}
         wire["anim"] = "idle"
+        wire["ref"] = self.handle_of(row["id"])
         self.live[row["id"]] = wire
         self.canvas_of[row["id"]] = row["canvas"]
         self.send({"op": "spawn", "canvas": row["canvas"], "entity": row})
 
-    def spawn(self, entity_id: str) -> None:
-        """An entity main has just created (ALIVE)."""
+    def handle_of(self, entity_id: str) -> int:
+        """A short number for an entity in world:delta rows, instead of its 36-character id.
+        Never reused while main runs, and kept when the simulation restarts, so a client's
+        map from handles to ids stays right; a new main means new sockets and snapshots."""
+        handle = self.handles.get(entity_id)
+        if handle is None:
+            handle = self.handles[entity_id] = len(self.handles) + 1
+        return handle
+
+    def spawn(self, entity_id: str) -> dict[str, Any] | None:
+        """An entity main has just created (ALIVE). Returns its live wire shape (with `ref`)."""
         for row in self.get_repo().sim_rows(entity_id=entity_id):
             self.add(row)
+        return self.live.get(entity_id)
 
     def chunk_changed(self, canvas_id: str, chunk: tuple[int, int], on: bool) -> None:
         self.send({"op": "chunk", "canvas": canvas_id, "cx": chunk[0], "cy": chunk[1], "on": on})
@@ -266,8 +278,12 @@ class SimBridge:
             entity["x"], entity["y"], entity["state"], entity["anim"], entity["hp"] = row[1:6]
             if len(row) > 6:
                 entity["view"] = row[6]
+        # Rows and departures name entities by handle (see handle_of): a third of the bytes.
+        handles = self.handles
         return {
-            "cx": message["cx"], "cy": message["cy"], "upd": message["upd"], "gone": message["gone"],
+            "cx": message["cx"], "cy": message["cy"],
+            "upd": [[handles[row[0]], *row[1:]] for row in message["upd"] if row[0] in handles],
+            "gone": [handles[i] for i in message["gone"] if i in handles],
             # Entities that walked into this chunk, in full, for those who did not have them.
             "enter": [self.live[i] for i in message["enter"] if i in self.live],
         }  # fmt: skip
@@ -311,7 +327,7 @@ class SimBridge:
         )
         wire = repo.get_entity(row["id"])
         assert wire is not None
-        wire.update(hp=100, anim="idle", view=(row.get("data") or {}).get("view") or {})
+        wire.update(hp=100, anim="idle", view=(row.get("data") or {}).get("view") or {}, ref=self.handle_of(row["id"]))
         self.live[row["id"]] = wire
         self.canvas_of[row["id"]] = message["canvas"]
         size = self.config.limits["world"]["chunk_size"]
