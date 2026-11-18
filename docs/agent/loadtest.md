@@ -30,6 +30,8 @@
   no-op round trip was 96–200 ms median, control latency 240–450 ms, server CPU 78–90 %.
   Now each client gets one world:delta per tick with all its chunks (each chunk is encoded
   once), and socketio's binary scan is off (we never send binary).
+- Memory: a 30 s rerun peaked at about 140 MiB resident for the server and the simulation
+  process together (macOS figures).
 - Density: about 37 entities per chunk, 440 in a 4x3 viewport, all moving or wandering:
   more than twice the §7 "200 visible" figure. Bandwidth scales with what is visible.
 - **Possible next step if bandwidth matters:** rows carry a 36-character UUID each. A short

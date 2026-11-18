@@ -9,7 +9,7 @@ from uuid import uuid4
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from deploy.backup import backup
+from deploy.backup import backup, mirror_sprites
 from tests.conftest import private_canvas, stroke_in
 
 
@@ -98,3 +98,20 @@ def test_five_thousand_strokes_in_a_chunk_and_online_backup(
     with sqlite3.connect(copied) as db:
         assert db.execute("SELECT count(*) FROM stroke").fetchone()[0] == 5000
         assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def test_backup_mirrors_sprite_folders(tmp_path: Path) -> None:
+    source, mirror = tmp_path / "sprites", tmp_path / "backups" / "sprites"
+    for name in ("a", "b"):
+        (source / name).mkdir(parents=True)
+        (source / name / "sheet.png").write_bytes(name.encode())
+    assert mirror_sprites(source, mirror) == (2, 0)
+    assert mirror_sprites(source, mirror) == (0, 0)  # nothing new: nothing copied
+    (source / "c").mkdir()
+    (source / "c" / "sheet.png").write_bytes(b"c")
+    (source / "a" / "sheet.png").unlink()
+    (source / "a").rmdir()  # the retention job removed a dead entity's sprite
+    assert mirror_sprites(source, mirror) == (1, 1)
+    assert sorted(p.name for p in mirror.iterdir()) == ["b", "c"]
+    assert (mirror / "c" / "sheet.png").read_bytes() == b"c"
+    assert mirror_sprites(tmp_path / "missing", mirror) == (0, 0)

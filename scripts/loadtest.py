@@ -251,6 +251,11 @@ def cpu_of(pid: int) -> float:
     return float(out.strip() or 0)
 
 
+def rss_mib(pid: int) -> float:
+    out = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)], capture_output=True, text=True).stdout
+    return float(out.strip() or 0) / 1024
+
+
 def children_of(pid: int) -> list[int]:
     out = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True).stdout
     return [int(line) for line in out.split()]
@@ -348,6 +353,7 @@ async def main() -> None:
             client.ticks.clear()
         started = time.monotonic()
         cpu_samples: dict[str, list[float]] = {"server": [], "simulation": []}
+        memory: list[float] = []
 
         async def sample_cpu() -> None:
             assert server
@@ -356,6 +362,7 @@ async def main() -> None:
                 cpu_samples["server"].append(cpu_of(server.pid))
                 # The busiest child is the simulation (the other is multiprocessing's resource tracker).
                 cpu_samples["simulation"].append(max((cpu_of(pid) for pid in children_of(server.pid)), default=0))
+                memory.append(rss_mib(server.pid) + sum(rss_mib(pid) for pid in children_of(server.pid)))
 
         sampler = asyncio.create_task(sample_cpu())
         print(f"measuring for {args.seconds} s (control probe runs meanwhile)")
@@ -418,7 +425,8 @@ async def main() -> None:
             f"- Socket round trip (an acknowledged no-op event, {len(ack_times)} samples): median "
             f"{statistics.median(ack_times):.0f} ms, p95 {pct(ack_times, 0.95):.0f} ms, max {max(ack_times):.0f} ms.",
             f"- CPU: server {statistics.median(cpu_samples['server']) if cpu_samples['server'] else float('nan'):.0f}% "
-            f"(median), simulation {statistics.median(cpu_samples['simulation']) if cpu_samples['simulation'] else float('nan'):.0f}%.",
+            f"(median), simulation {statistics.median(cpu_samples['simulation']) if cpu_samples['simulation'] else float('nan'):.0f}%; "
+            f"memory (resident, server and its children) up to {max(memory, default=float('nan')):.0f} MiB.",
         ]  # fmt: skip
         report = "\n".join(lines) + "\n"
         print("\n" + report)
