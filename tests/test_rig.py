@@ -1,3 +1,4 @@
+import math
 from typing import Any
 
 import numpy as np
@@ -249,3 +250,72 @@ def test_a_pair_of_wings_lifts_together_and_a_line_through_a_wing_box_stays_body
     (wing,) = rig.parts
     ys, xs = np.nonzero(alpha(wing.layer) > 100)
     assert xs.max() - xs.min() < 45 * bird.scale  # only the short wing stroke
+
+
+def test_walkers_find_unboxed_legs_but_not_lines_cut_at_chunk_borders_or_words() -> None:
+    # Drawn just above the chunk border at y = 1024.
+    top = 1000
+    body = stroke([(0, top), (160, top), (160, top + 50), (0, top + 50), (0, top)], 6)
+    legs = [stroke([(x, top + 50), (x + 2, top + 110)], 6) for x in (20, 60, 100, 140)]
+    # A dress-like side from above the body down to the ground, crossing the border: the
+    # client sent it as two strokes meeting at the cut. Its lower piece alone would look
+    # just like a hanging leg; joined, it is one line that starts far above the legs.
+    side = [stroke([(178, top - 40), (178, 1024)], 6), stroke([(178, 1024), (181, top + 110)], 6)]
+    word_y = top + 150  # a word written under the drawing, in reach of the leg boxes
+    word = [stroke([(40 + 12 * k, word_y), (46 + 12 * k, word_y + 18)], 3) for k in range(4)]
+    cutout = rasterize([body, *legs, *side, *word])
+    one_leg = {"legs": [((140 - 8 - cutout.x) * cutout.scale / cutout.image.width, 0.4, 0.06, 0.25)],
+               "wings": [], "wheels": [], "head": None, "tail": None}  # fmt: skip
+    rig = build_rig(cutout, one_leg, walker=True)
+    left_to_right = sorted((p for p in rig.parts if p.kind == "legs"), key=lambda p: p.pivot[0])
+    assert len(left_to_right) == 4  # all four legs, though only one was boxed
+    assert [p.index for p in left_to_right] == [0, 1, 2, 3]
+    pad = (rig.width - cutout.image.width) // 2
+    to_x = lambda x: round(pad + (x - cutout.x) * cutout.scale)  # noqa: E731
+    assert all(abs(p.pivot[0] - to_x(x)) <= 6 for p, x in zip(left_to_right, (20, 60, 100, 140)))
+    body_alpha = alpha(rig.body)
+    word_row = round(pad + (word_y + 9 - cutout.y) * cutout.scale)
+    assert body_alpha[word_row - 3 : word_row + 3].max() > 100  # the word stays with the body
+    assert body_alpha[:, to_x(180) - 3 : to_x(180) + 3].max() > 100  # so does the dress side
+
+
+def test_the_chunk_size_used_to_join_cut_strokes_is_the_worlds() -> None:
+    from pathlib import Path
+
+    from app.alive.parts import CHUNK_SIZE, chains
+    from app.config import GameConfig
+
+    assert GameConfig(Path(__file__).parent.parent / "config").limits["world"]["chunk_size"] == CHUNK_SIZE
+    cut = [stroke([(0, 1000), (0, 1024)]), stroke([(0, 1024), (0, 1050)])]
+    touching = [stroke([(10, 10), (10, 80)]), stroke([(10, 80), (30, 150)])]  # a torso and a leg
+    assert [len(c) for c in chains(cut)] == [2] and [len(c) for c in chains(touching)] == [1, 1]
+
+
+def test_overlapping_leg_boxes_give_each_stick_leg_whole_to_one_leg() -> None:
+    figure = rasterize([
+        stroke([(50, 0), (50, 80)], 6),                       # torso
+        stroke([(50, 80), (25, 150)], 6), stroke([(50, 80), (75, 150)], 6),  # legs from the hip
+    ])  # fmt: skip
+    # Two boxes that overlap in the middle and start below the hip, as VLMs draw them.
+    legs = {"legs": [(0.05, 0.62, 0.55, 0.38), (0.4, 0.62, 0.55, 0.38)], "wings": [], "wheels": [], "head": None, "tail": None}
+    rig = build_rig(figure, legs, walker=True)
+    pieces = [p for p in rig.parts if p.kind == "legs"]
+    assert len(pieces) == 2 and {p.index for p in pieces} == {0, 1}
+    pad = (rig.width - figure.image.width) // 2
+    hip = (pad + (50 - figure.x) * figure.scale, pad + (80 - figure.y) * figure.scale)
+    for leg in pieces:
+        assert math.dist(leg.pivot, hip) <= 4  # each turns at the hip, not at a box edge
+        rows = np.nonzero((alpha(leg.layer) > 100).any(axis=1))[0]
+        assert rows[0] <= hip[1] + 4 and rows[-1] >= rig.bottom - 4  # and is whole
+
+
+def test_what_moves_depends_on_the_type() -> None:
+    plane = rasterize([stroke([(0, 30), (200, 30)], 10), stroke([(80, 30), (120, 0)], 6), stroke([(80, 30), (120, 60)], 6)])
+    wings = {"legs": [], "wings": [(0.35, 0.0, 0.3, 0.45), (0.35, 0.55, 0.3, 0.45)], "wheels": [], "head": None, "tail": None}
+    sheet, manifest, _ = rig_sprite(plane, classified("vehicle", locomotion="none", parts=wings))
+    move = frames(sheet, manifest, "move")
+    # No flapping: the move row is the engine shake, a pixel at most.
+    assert changed(move[0], move[2]) < 0.02
+    sheet, manifest, _ = rig_sprite(plane, classified("creature", locomotion="fly", parts=wings))
+    move = frames(sheet, manifest, "move")
+    assert changed(move[0], move[4]) > 0.02  # a bird with the same wings does flap

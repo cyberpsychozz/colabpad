@@ -103,7 +103,7 @@ class Rig:
         return (self.left + self.right) / 2, (self.top + self.bottom) / 2
 
 
-def build_rig(source: Cutout | Image.Image, parts: dict[str, Any]) -> Rig:
+def build_rig(source: Cutout | Image.Image, parts: dict[str, Any], walker: bool = False) -> Rig:
     """Place the cutout on a padded frame canvas and split it into body and part layers."""
     cutout = source.image if isinstance(source, Cutout) else source
     pad = math.ceil(max(cutout.size) * FRAME_PAD)
@@ -135,7 +135,7 @@ def build_rig(source: Cutout | Image.Image, parts: dict[str, Any]) -> Rig:
         return min(sides, key=lambda side: side[1])[0]
 
     if isinstance(source, Cutout) and source.strokes:
-        return vector_rig(source, parts, rig, pad, pixels)
+        return vector_rig(source, parts, rig, pad, pixels, walker)
 
     listed = [(kind, i, box) for kind in ("legs", "wings", "wheels") for i, box in enumerate(parts.get(kind) or [])]
     listed += [(kind, 0, parts[kind]) for kind in ("head", "tail") if parts.get(kind)]
@@ -160,11 +160,11 @@ def build_rig(source: Cutout | Image.Image, parts: dict[str, Any]) -> Rig:
     return rig
 
 
-def vector_rig(cutout: Cutout, parts: dict[str, Any], rig: Rig, pad: int, pixels: Any) -> Rig:
+def vector_rig(cutout: Cutout, parts: dict[str, Any], rig: Rig, pad: int, pixels: Any, walker: bool) -> Rig:
     """Layers drawn from the user's strokes, split at the part boundaries."""
-    if not any(parts.get(kind) for kind in ("legs", "wings", "wheels", "tail")):
+    if not walker and not any(parts.get(kind) for kind in ("legs", "wings", "wheels", "tail")):
         return rig
-    pieces = split(cutout, parts, pad, pixels, (rig.left, rig.top, rig.right, rig.bottom))
+    pieces = split(cutout, parts, pad, pixels, (rig.left, rig.top, rig.right, rig.bottom), walker)
 
     def layer(strokes: list[dict[str, Any]]) -> Image.Image:
         pixels_ = render(strokes, cutout.x - pad / cutout.scale, cutout.y - pad / cutout.scale,
@@ -301,16 +301,37 @@ def area_polygon(image: Image.Image, vertices: int = 64) -> list[list[float]]:
     return polygon
 
 
+# What may move on its own, by type. A plane's wings do not flap and a fish swims with
+# its whole body; head boxes are never animated on their own.
+MOVING_BY_TYPE = {
+    "creature": ("legs", "wings", "tail"),
+    "predator": ("legs", "wings", "tail"),
+    "person": ("legs",),
+    "vehicle": ("wheels",),
+}
+
+
+def moving_parts(classified: Classified) -> dict[str, Any]:
+    allowed = MOVING_BY_TYPE.get(classified.type, ())
+    return {kind: (boxes if kind in allowed else ([] if kind in ("legs", "wings", "wheels") else None))
+            for kind, boxes in classified.parts.items()}  # fmt: skip
+
+
 def rig_sprite(cutout: Cutout, classified: Classified) -> tuple[Image.Image, dict[str, Any], float]:
     """(sheet, manifest, pixels per cutout pixel). Water and sky keep the drawing as it is."""
     if classified.type in UNRIGGED:
         from app.alive.bake import single_frame_manifest
 
         return cutout.image, single_frame_manifest(cutout.image, classified.facing), 1.0
-    rig = build_rig(cutout, classified.parts)
+    # Walkers get the legs the VLM missed; legs on a car or a house would be wrong.
+    walker = classified.locomotion == "walk" and classified.type in ("creature", "predator", "person")
+    rig = build_rig(cutout, moving_parts(classified), walker)
     rows = [
         idle_frames(rig, classified.type),
-        move_frames(rig, classified) if classified.locomotion != "none" or rig.parts else idle_frames(rig, classified.type) * 2,
+        # A vehicle with nothing to spin (a plane, a boat) keeps its engine shake while it moves.
+        move_frames(rig, classified)
+        if rig.parts or (classified.locomotion != "none" and classified.type != "vehicle")
+        else idle_frames(rig, classified.type) * 2,
         act_frames(rig, classified),
         death_frames(rig),
     ]
