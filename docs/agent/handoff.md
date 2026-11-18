@@ -13,7 +13,11 @@ Then open http://127.0.0.1:8000/w. `.venv` and `web/node_modules` must exist (se
 `start.sh` builds the frontend only if `app/static` is missing; after changing anything in
 `web/`, run `npm run build` there.
 
-Checks: `env -u PYTHONPATH .venv/bin/python -m pytest -q` and `npm test` in `web/`.
+Checks: `env -u PYTHONPATH .venv/bin/python -m pytest -q` and `npm test` in `web/`. The §12
+scenarios in two browsers: `npm run e2e` in `web/` (needs Google Chrome installed; builds the
+frontend, starts its own server on port 8030 with a throwaway database and the VLM off).
+The VLM's accuracy: `scripts/vlm_accuracy.py` (spends real money, about $0.25 a run; see
+`docs/agent/vlm-accuracy.md`). Load: `scripts/loadtest.py`.
 Stop a running dev server before running pytest; two timing-sensitive tests dislike the load.
 
 ALIVE without a key shows the manual type grid (the author picks the type). For automatic
@@ -34,6 +38,8 @@ recognition put an OpenRouter key in `.env` as `VLM_API_KEY`; models and the $5/
 | T25 | `scripts/loadtest.py` (real server, 2 000 entities, 50 WebSocket clients); report in `docs/agent/loadtest.md` |
 | T26 | §12 walked in two browser clients (one RU, one EN), see "Scenario run" below |
 | T27 | `docs/agent/deploy.md`; backups mirror `sprites/`; systemd `KillMode=mixed` |
+| T7 | 81 drawings (`scripts/drawings.py`), real VLM run: 77/81 = 95% top-1, RU/EN handwriting 14/14 (`docs/agent/vlm-accuracy.md`) |
+| §12 e2e | `web/e2e/scenarios.spec.js` with Playwright: 5 scenarios, both languages |
 | §5 / §8 extras | daily retention pass (`app/retention.py`), `GET /api/me/events?since=`, sign-in returns to the world it started from |
 
 Local development without SMTP: mail (sign-in links, invitations) is printed to the server log
@@ -42,9 +48,28 @@ not start with `test_` is refused on purpose.
 
 ## Not done
 
-- **T7** accuracy run over 60+ drawings: needs a real VLM key, a budget and a set of test
-  drawings (RU and EN handwriting included). Not started.
 - Balance tuning beyond the brief's defaults (part of T26): nothing was changed.
+- Sprites already baked in a world before the rig rewrite keep their old (torn) animation;
+  only new ALIVEs get the new rig. Production starts from an empty database, so this only
+  matters for local worlds.
+
+## Animation (rig) after the T7 review
+
+The rig splits the player's strokes, not the picture (`app/alive/parts.py`). Reviewed by eye
+on the local world's drawings and on all 81 T7 drawings with the real VLM's boxes
+(`scripts/vlm_accuracy.py --from-json … --sheets DIR` replays saved answers for free and saves
+each walk cycle). The rules, each from a case seen there:
+
+- strokes the client cut at a chunk border are joined back first;
+- the drawing is the largest group of touching lines (plus what lies inside it): captions
+  never move and do not set the ground;
+- legs reach the ground; overlapping leg boxes give each stretch of line to one leg; a leg
+  stroke that leaves its box at the hip or the foot is a leg end to end (turns at the hip);
+  walkers also get legs the VLM did not box (strokes hanging from the body to the ground);
+- a flat run in a leg box is the belly; a wing or tail must end in its box; a separate leg
+  or tail must start at the body; small closed loops (letters, eyes, spots) never move;
+- wheels take only strokes inside their circle; vehicles only spin wheels (planes shake),
+  fish swim with the whole body, people swing legs, wings flap by turning at the shoulder.
 
 ## Scenario run (T26, 2026-11-18)
 
@@ -131,13 +156,15 @@ into a narrow column near the right edge.
   World events now store every entity they name (`actors`).
 - The magic link carries `next` (only `/w`, `/plans` or `/p/{slug}`) to land where sign-in
   started.
+- `world:delta` rows and `gone` lists name entities by `ref`, a small number main gives each
+  entity (kept across simulation restarts); every full copy of an entity carries it.
+- The VLM gets what is left of the 25 s hard limit minus 5 s for rigging; past that the author
+  gets the type grid. After a timeout the adapter goes straight to the fallback model.
+- The classify prompt is v2: part boxes from joint to tip, not overlapping.
 - The out-of-quota error's `details` add `more` (anonymous: what signing in adds) or
   `plusLimit` (free), for the plural hint.
 
 ## Open questions for the human
 
-- Playwright for the §12 scenarios: approved or not?
-- T7: may the agent spend from the OpenRouter key in `.env` (about $0.004 a drawing, so well
-  under $1 for 60–100 drawings), and should it draw the test set itself (synthetic strokes)?
-- Bandwidth: about 50–90 KiB/s per player at 440 visible entities. Short entity handles in
-  deltas would roughly halve it (see `docs/agent/loadtest.md`). Worth doing before launch?
+None at the moment. Answered: Playwright approved (used with the installed Chrome, no
+browser download); T7 run with the key in `.env` ($0.24); short entity handles done.
