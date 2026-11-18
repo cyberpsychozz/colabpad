@@ -67,6 +67,11 @@ every ALIVE went through the manual grid (§12.8). Seen working:
 - subscription expired → both clients reload into the frozen world with `canvas.frozen` and
   the owner as viewer; reactivated → unfrozen (the minute sweep picked both up).
 
+`docker compose up --build -d --wait` from a clean clone (own project name, port 8020): healthy,
+`/w` served, built-in sprites baked with skia inside the image, simulation process running,
+clean stop. It had been failing at `npm test` in the image (the catalog test reads
+`app/errors.py` and `config/archetypes.yaml`); the Dockerfile now copies those two files.
+
 Not walked: §12.2/3/4/7 (behaviour over minutes: unit-tested per ● cell), §12.10's payment
 itself and §12.12's gate (no test shop keys, no ad blocker in the pane).
 
@@ -80,8 +85,6 @@ into a narrow column near the right edge.
   and the gate with a real ad blocker (unit-tested; in the browser only "no blocker, empty
   fill, world opens" was seen).
 
-- `docker compose up --build`: the Docker daemon was not running. The Dockerfile now installs
-  `libfontconfig1 libgl1 libegl1` for skia-python and copies `config/` and `prompts/`.
 - Driving with the on-screen stick (touch); WASD was driven in the browser.
 - Entity animation frames with real part boxes (legs, wheels): the rig is unit-tested; in the
   browser only drawings typed through the manual grid (no parts, so they hop) were seen.
