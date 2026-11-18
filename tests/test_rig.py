@@ -149,3 +149,103 @@ def test_big_drawings_are_shrunk_to_fit_the_sheet_and_areas_are_not_rigged() -> 
     xs, ys = [p[0] for p in polygon], [p[1] for p in polygon]
     # The outline spans the whole loop, so its inside is the lake.
     assert max(xs) - min(xs) > 150 and max(ys) - min(ys) > 70
+
+
+# ---- parts split from the user's strokes (app/alive/parts.py)
+
+from app.alive.rig import build_rig, compose  # noqa: E402
+
+
+def cat() -> Cutout:
+    """A body outline whose belly line crosses both leg boxes, legs drawn as their own
+    strokes hanging from it, and a tail."""
+    return rasterize([
+        stroke([(0, 0), (160, 0), (160, 50), (0, 50), (0, 0)], 6),   # body outline
+        stroke([(25, 50), (20, 110)], 6),                            # front leg
+        stroke([(135, 50), (140, 110)], 6),                          # back leg
+        stroke([(160, 10), (200, -20)], 6),                          # tail
+    ])
+
+
+# Boxes as a VLM draws them: the leg boxes start above the belly and stop short of the feet.
+CAT_PARTS = {"legs": [(0.05, 0.35, 0.2, 0.3), (0.62, 0.35, 0.2, 0.3)], "wings": [], "wheels": [],
+             "head": None, "tail": (0.78, 0.0, 0.22, 0.25)}  # fmt: skip
+
+
+def alpha(image: Image.Image) -> np.ndarray:
+    return np.asarray(image)[:, :, 3].astype(int)
+
+
+def test_a_rig_split_from_strokes_redraws_the_drawing_exactly_and_never_twice() -> None:
+    cutout = cat()
+    rig = build_rig(cutout, CAT_PARTS)
+    assert sorted(part.kind for part in rig.parts) == ["legs", "legs", "tail"]
+    # At rest, body plus parts is the drawing itself: nothing torn off, nothing lost.
+    whole = alpha(compose(rig))
+    plain = Image.new("RGBA", (rig.width, rig.height))
+    pad = (rig.width - cutout.image.width) // 2
+    plain.paste(cutout.image, (pad, pad))
+    difference = np.abs(whole - alpha(plain))
+    # Only antialiased edge pixels where two pieces' round caps meet differ, and barely.
+    assert difference.max() <= 64 and (difference > 40).sum() < 0.01 * (alpha(plain) > 100).sum()
+    # No line is in two layers, apart from the round cap where a part joins the body.
+    layers = [rig.body] + [part.layer for part in rig.parts]
+    for i, a in enumerate(layers):
+        for b in layers[i + 1:]:
+            assert ((alpha(a) > 100) & (alpha(b) > 100)).sum() < 60
+    # The belly and the outline stay with the body: a leg has nothing above the belly.
+    belly_row = round(pad + (50 - cutout.y) * cutout.scale)
+    for leg in (p for p in rig.parts if p.kind == "legs"):
+        rows = np.nonzero((alpha(leg.layer) > 100).any(axis=1))[0]
+        assert rows[0] >= belly_row - 4
+        # It reaches the ground (the box stopped short) and turns where it meets the belly.
+        assert rows[-1] >= rig.bottom - 4
+        assert abs(leg.pivot[1] - belly_row) <= 3
+    left, right = sorted((p for p in rig.parts if p.kind == "legs"), key=lambda p: p.pivot[0])
+    assert (left.index, right.index) == (0, 1)
+
+
+def test_wheels_spin_only_their_own_strokes() -> None:
+    # A body line runs straight through both wheel boxes; it must not turn with them.
+    car = rasterize([
+        stroke([(0, 30), (200, 30)], 6),
+        stroke([(40 + 15 * np.cos(a), 45 + 15 * np.sin(a)) for a in np.linspace(0, 6.3, 24)] + [(40, 45)], 5),
+        stroke([(160 + 15 * np.cos(a), 45 + 15 * np.sin(a)) for a in np.linspace(0, 6.3, 24)] + [(160, 45)], 5),
+    ])
+    box = lambda cx: ((cx - 18 - car.x) * car.scale / car.image.width, (27 - car.y) * car.scale / car.image.height,  # noqa: E731
+                      36 * car.scale / car.image.width, 36 * car.scale / car.image.height)
+    rig = build_rig(car, {"legs": [], "wings": [], "wheels": [box(40), box(160)], "head": None, "tail": None})
+    wheels = [part for part in rig.parts if part.kind == "wheels"]
+    assert len(wheels) == 2
+    body = alpha(rig.body)
+    line_row = round(rig.top + (30 - (car.y + 8 / car.scale)) * car.scale) + 8
+    assert (body.max(axis=0) > 100).sum() >= 190 * car.scale  # the full line is body
+    for wheel in wheels:
+        # Spinning about its own centre: the drawn circle's middle.
+        ys, xs = np.nonzero(alpha(wheel.layer) > 100)
+        assert abs(wheel.pivot[0] - (xs.min() + xs.max()) / 2) <= 2
+        assert abs(wheel.pivot[1] - (ys.min() + ys.max()) / 2) <= 2
+
+
+def test_a_pair_of_wings_lifts_together_and_a_line_through_a_wing_box_stays_body() -> None:
+    # A gull: one stroke, two wings meeting in the middle.
+    gull = rasterize([stroke([(0, 20), (40, 0), (80, 30), (120, 0), (160, 20)], 6)])
+    wings = {"legs": [], "wings": [(0.0, 0.0, 0.5, 1.0), (0.5, 0.0, 0.5, 1.0)], "wheels": [], "head": None, "tail": None}
+    sheet, manifest, _ = rig_sprite(gull, classified(locomotion="fly", parts=wings))
+    move = frames(sheet, manifest, "move")
+    def tips(frame: np.ndarray) -> tuple[float, float]:
+        """Height of the ink in the leftmost and rightmost painted columns."""
+        columns = np.nonzero(frame[:, :, 3].any(axis=0))[0]
+        rows = lambda column: np.nonzero(frame[:, column, 3])[0].mean()  # noqa: E731
+        return rows(columns[0]), rows(columns[-1])
+
+    up, down = tips(move[0]), tips(move[4])
+    assert up[0] < down[0] - 5 and up[1] < down[1] - 5  # both tips higher in frame 0 than in frame 4
+
+    # A body outline passing through a wing box (and ending outside it) is not a wing.
+    bird = rasterize([stroke([(0, 0), (100, 0), (100, 60), (0, 60), (0, 0)], 6), stroke([(30, 20), (60, 35)], 6)])
+    wing_box = (0.2, 0.2, 0.45, 0.45)
+    rig = build_rig(bird, {"legs": [], "wings": [wing_box], "wheels": [], "head": None, "tail": None})
+    (wing,) = rig.parts
+    ys, xs = np.nonzero(alpha(wing.layer) > 100)
+    assert xs.max() - xs.min() < 45 * bird.scale  # only the short wing stroke

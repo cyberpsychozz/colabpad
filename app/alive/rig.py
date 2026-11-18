@@ -1,8 +1,10 @@
 """ALIVE step 7: a procedural rig made from the user's own lines.
 
-The cutout is split into layers by the part boxes the VLM marked; each animation
-moves those layers with plain affine transforms and strip shifts. The result is a
-sprite sheet plus the manifest in app/alive/bake.py.
+The user's strokes are split into a body and the moving parts the VLM marked
+(app/alive/parts.py), and each is drawn on its own layer; each animation moves those
+layers with plain affine transforms and strip shifts. A cutout without strokes falls
+back to cutting the picture by the part boxes. The result is a sprite sheet plus the
+manifest in app/alive/bake.py.
 """
 
 import math
@@ -12,8 +14,9 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from app.alive.parts import split
 from app.alive.postprocess import Classified
-from app.alive.rasterize import Cutout
+from app.alive.rasterize import Cutout, render
 
 FRAMES = {"idle": 4, "move": 8, "act": 4, "death": 6}
 FPS = {"idle": 4, "move": 10, "act": 8, "death": 8}
@@ -80,6 +83,7 @@ class Part:
     layer: Image.Image
     pivot: tuple[float, float]
     index: int = 0
+    side: int = 0  # -1 / 1: which way it reaches from the pivot; 0 unknown
 
 
 @dataclass
@@ -99,8 +103,9 @@ class Rig:
         return (self.left + self.right) / 2, (self.top + self.bottom) / 2
 
 
-def build_rig(cutout: Image.Image, parts: dict[str, Any]) -> Rig:
-    """Place the cutout on a padded frame canvas and cut it into body and part layers."""
+def build_rig(source: Cutout | Image.Image, parts: dict[str, Any]) -> Rig:
+    """Place the cutout on a padded frame canvas and split it into body and part layers."""
+    cutout = source.image if isinstance(source, Cutout) else source
     pad = math.ceil(max(cutout.size) * FRAME_PAD)
     width, height = cutout.width + 2 * pad, cutout.height + 2 * pad
     canvas = Image.new("RGBA", (width, height))
@@ -129,6 +134,9 @@ def build_rig(cutout: Image.Image, parts: dict[str, Any]) -> Rig:
         ]
         return min(sides, key=lambda side: side[1])[0]
 
+    if isinstance(source, Cutout) and source.strokes:
+        return vector_rig(source, parts, rig, pad, pixels)
+
     listed = [(kind, i, box) for kind in ("legs", "wings", "wheels") for i, box in enumerate(parts.get(kind) or [])]
     listed += [(kind, 0, parts[kind]) for kind in ("head", "tail") if parts.get(kind)]
     body = np.asarray(canvas).copy()
@@ -149,6 +157,22 @@ def build_rig(cutout: Image.Image, parts: dict[str, Any]) -> Rig:
         # The body keeps a thin overlap so no seam opens when the part moves.
         body[y0 + BODY_OVERLAP : y1 - BODY_OVERLAP, x0 + BODY_OVERLAP : x1 - BODY_OVERLAP] = 0
     rig.body = Image.fromarray(body, "RGBA")
+    return rig
+
+
+def vector_rig(cutout: Cutout, parts: dict[str, Any], rig: Rig, pad: int, pixels: Any) -> Rig:
+    """Layers drawn from the user's strokes, split at the part boundaries."""
+    if not any(parts.get(kind) for kind in ("legs", "wings", "wheels", "tail")):
+        return rig
+    pieces = split(cutout, parts, pad, pixels, (rig.left, rig.top, rig.right, rig.bottom))
+
+    def layer(strokes: list[dict[str, Any]]) -> Image.Image:
+        pixels_ = render(strokes, cutout.x - pad / cutout.scale, cutout.y - pad / cutout.scale,
+                         rig.width, rig.height, cutout.scale)  # fmt: skip
+        return Image.fromarray(pixels_, "RGBA")
+
+    rig.parts = [Part(piece.kind, layer(piece.strokes), piece.pivot, piece.index, piece.side) for piece in pieces.parts]
+    rig.body = layer(pieces.body) if rig.parts else rig.body
     return rig
 
 
@@ -208,8 +232,11 @@ def move_frames(rig: Rig, classified: Classified) -> list[Image.Image]:
                     # Neighbouring legs swing in counter-phase.
                     moves[n] = rotate(20 * math.sin(turn + part.index * math.pi), *part.pivot)
                 elif part.kind == "wings":
-                    flap = 0.7 + 0.3 * math.cos(turn)  # 1 -> 0.4 -> 1
-                    moves[n] = scale(1, flap, *part.pivot)
+                    # A flap: the wing turns about its shoulder and folds a little.
+                    side = part.side or (-1 if part.pivot[0] <= rig.center[0] else 1)
+                    lift = math.cos(turn)  # up, level, down, level, up
+                    # With y pointing down, a wing reaching left lifts by turning clockwise.
+                    moves[n] = rotate(-side * 22 * lift, *part.pivot) @ scale(1, 0.85 + 0.15 * abs(lift), *part.pivot)
                 elif part.kind == "wheels":
                     moves[n] = rotate(45 * i, *part.pivot)
                 elif part.kind == "tail":
@@ -280,7 +307,7 @@ def rig_sprite(cutout: Cutout, classified: Classified) -> tuple[Image.Image, dic
         from app.alive.bake import single_frame_manifest
 
         return cutout.image, single_frame_manifest(cutout.image, classified.facing), 1.0
-    rig = build_rig(cutout.image, classified.parts)
+    rig = build_rig(cutout, classified.parts)
     rows = [
         idle_frames(rig, classified.type),
         move_frames(rig, classified) if classified.locomotion != "none" or rig.parts else idle_frames(rig, classified.type) * 2,

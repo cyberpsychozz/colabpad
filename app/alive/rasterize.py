@@ -32,6 +32,9 @@ def render_stroke(canvas: skia.Canvas, stroke: Stroke) -> None:
     paint.setStyle(skia.Paint.kStroke_Style)
     paint.setStrokeCap(skia.Paint.kRound_Cap)
     paint.setStrokeJoin(skia.Paint.kRound_Join)
+    if stroke.get("dense"):
+        _render_dense(canvas, points, stroke["width"], paint)
+        return
     start = points[0]
     for i in range(1, len(points)):
         control, point = points[i - 1], points[i]
@@ -46,6 +49,24 @@ def render_stroke(canvas: skia.Canvas, stroke: Stroke) -> None:
         paint.setStrokeWidth(stroke["width"] * (0.5 + (control[2] + point[2]) / 2))
         canvas.drawPath(path, paint)
         start = end
+
+
+def _render_dense(canvas: skia.Canvas, points: list[list[float]], width: float, paint: skia.Paint) -> None:
+    """A piece of a stroke the rig split, already sampled along the curve render_stroke
+    draws (app/alive/parts.py), with one pressure per original segment. Each stretch of
+    equal pressure is one path, so the round caps of many tiny segments do not pile up
+    alpha on the edges and the piece looks like the same stretch of the whole stroke."""
+    group = [points[0]]
+    for point in points[1:]:
+        group.append(point)
+        if point is points[-1] or point[2] != group[1][2]:
+            path = skia.Path()
+            path.moveTo(group[0][0], group[0][1])
+            for x, y, _ in group[1:]:
+                path.lineTo(x, y)
+            paint.setStrokeWidth(width * (0.5 + group[-1][2]))
+            canvas.drawPath(path, paint)
+            group = [point]
 
 
 def render(strokes: list[Stroke], x: float, y: float, width: int, height: int, scale: float = 1.0) -> np.ndarray:
@@ -71,6 +92,8 @@ class Cutout:
     x: float
     y: float
     scale: float
+    # The strokes it was drawn from (world coordinates), so the rig can split them by part.
+    strokes: list[Stroke] | None = None
 
     def on_white(self) -> Image.Image:
         """The copy shown to the VLM."""
@@ -103,4 +126,5 @@ def rasterize(strokes: list[Stroke], long_side: int = 512, pad: int = 8) -> Cuto
         x0 + (left - pad) / scale,
         y0 + (top - pad) / scale,
         scale,
+        strokes,
     )

@@ -87,7 +87,7 @@ def test_schema_accepts_the_contract_and_rejects_nonsense() -> None:
         with pytest.raises(ValueError):
             VlmResult.model_validate(bad)
     version, prompt = load_prompt(ROOT / "prompts" / "classify.md")
-    assert version == "1" and "FUNCTION" in prompt and "version:" not in prompt
+    assert version == "2" and "FUNCTION" in prompt and "version:" not in prompt
 
 
 def test_request_shape_and_cost_tracking() -> None:
@@ -107,7 +107,7 @@ def test_request_shape_and_cost_tracking() -> None:
     image = seen["messages"][1]["content"][0]["image_url"]["url"]
     assert image == "data:image/png;base64,cG5nLWJ5dGVz"
     assert spent == {"vlm_microusd:2026-11-16": 3100}
-    assert vlm.prompt_version == "1"
+    assert vlm.prompt_version == "2"
 
 
 def test_bad_json_is_retried_then_the_fallback_model_answers() -> None:
