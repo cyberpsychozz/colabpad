@@ -160,17 +160,21 @@ class OpenRouterVlm:
         self.prompt_version, self.prompt = prompt
 
     async def classify(self, image_png: bytes) -> VlmResult:
-        """Primary model with retries, then the fallback model once."""
+        """Primary model with retries (a timeout skips them), then the fallback model once."""
         attempts = [self.config["primary_model"]] * (1 + self.config["retries"])
         attempts.append(self.config["fallback_model"])
         last = VlmError("VLM_UNAVAILABLE", "no attempt made")
+        timed_out = False
         for model in attempts:
+            if timed_out and model == self.config["primary_model"]:
+                continue  # a slow model stays slow: go to the fallback instead of waiting again
             if self.budget.exhausted():
                 raise VlmError("VLM_UNAVAILABLE", "daily budget reached")
             try:
                 return await self._ask(model, image_png)
             except httpx.TimeoutException:
                 last = VlmError("VLM_TIMEOUT", model)
+                timed_out = True
             except (httpx.HTTPError, ValidationError, ValueError, KeyError, TypeError) as exc:
                 last = VlmError("VLM_UNAVAILABLE", f"{model}: {type(exc).__name__}")
             logger.warning("VLM attempt failed: %s", last)

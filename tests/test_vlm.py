@@ -137,7 +137,9 @@ def test_timeouts_and_outages_end_in_a_vlm_error_never_an_exception() -> None:
     vlm, spent, models = adapter(timeout)
     with pytest.raises(VlmError) as error:
         asyncio.run(vlm.classify(b"x"))
-    assert error.value.code == "VLM_TIMEOUT" and len(models) == 3 and spent == {}
+    # A timeout does not wait on the same slow model again: straight to the fallback.
+    assert error.value.code == "VLM_TIMEOUT" and models == ["google/gemini-3.8-flash", "qwen/qwen3-vl-235b-a22b-instruct"]
+    assert spent == {}
 
     vlm, spent, models = adapter(lambda request, body, n: httpx.Response(503))
     with pytest.raises(VlmError) as error:

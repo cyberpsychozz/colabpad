@@ -33,6 +33,9 @@ from app.repo.canvases import now_ms
 
 logger = logging.getLogger(__name__)
 
+# Seconds of the hard limit kept for rigging and baking after the VLM.
+RIG_RESERVE_S = 5.0
+
 # (sheet, manifest, sheet pixels per cutout pixel)
 Rig = Callable[[Cutout, Classified], tuple[Image.Image, dict[str, Any], float]]
 
@@ -225,7 +228,13 @@ class AliveService:
             if self.config.flags.vlm.enabled:
                 try:
                     png = await asyncio.to_thread(self.png, cutout.on_white())
-                    result = await self.vlm.classify(png)
+                    # The VLM may take what is left of the budget, less the time rigging needs;
+                    # past that the author picks the type (never a dead end).
+                    left = hard - (self.monotonic() - started) - RIG_RESERVE_S
+                    try:
+                        result = await asyncio.wait_for(self.vlm.classify(png), max(1.0, left))
+                    except TimeoutError:
+                        raise VlmError("VLM_TIMEOUT", "out of time") from None
                     repo.update_job(
                         job.id,
                         vlm_result={"prompt": self.vlm.prompt_version, **result.model_dump()},

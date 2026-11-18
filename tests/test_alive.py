@@ -1,3 +1,4 @@
+import asyncio
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -164,6 +165,28 @@ def test_no_answer_picks_the_first_guess(make: Any) -> None:
     status = wait(client, alive(client).json()["jobId"])
     assert status["status"] == "spawned" and status["type"] == "creature"
     assert world.last("world:event")["entity"]["label"]["en"] == "cow"
+
+
+def test_a_vlm_slower_than_the_time_left_gives_the_manual_grid_not_a_failure(make: Any) -> None:
+    class SlowVlm:
+        prompt_version = "slow"
+        calls = 0
+
+        async def classify(self, image_png: bytes) -> Any:
+            self.calls += 1
+            await asyncio.sleep(30)
+
+    world, client = make(SlowVlm())
+    # 6 s in all, 5 kept for rigging: the VLM gets about a second.
+    world.limits["hard_timeout_s"] = 6
+    world.draw()
+    job_id = alive(client).json()["jobId"]
+    wait(client, job_id, "choose")
+    assert world.events[-1][0] == "alive:choose" and world.events[-1][1]["top3"] is None
+    assert "alive:failed" not in world.names()
+    assert world.app.state.repo.get_job(job_id)["error_code"] == "VLM_TIMEOUT"
+    assert client.post(f"/api/alive/{job_id}/choice", json={"type": "doodle"}).status_code == 200
+    assert wait(client, job_id)["status"] == "spawned"
 
 
 @pytest.mark.parametrize("mode", ["timeout", "unavailable", "flag_off"])
