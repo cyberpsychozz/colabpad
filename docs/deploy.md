@@ -254,7 +254,8 @@ Push the commit you want live to the `deploy` branch:
 git push origin main:deploy
 ```
 
-The workflow runs `pytest` and the client tests and build. Only if they pass does it SSH into
+The workflow runs `pytest`, the client tests and build, and the browser scenarios
+(`npm run e2e`: two Chrome clients against a throwaway server). Only if all of them pass does it SSH into
 the server as `gh_deploy_collabpad` and, in `/opt/collabpad`:
 
 1. refuses to go on if the checkout has local edits, then fetches `deploy` and checks out
