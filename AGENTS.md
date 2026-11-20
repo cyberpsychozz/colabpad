@@ -10,11 +10,11 @@ Canvas 2D on the client, RU + EN.
 
 | Doc | What |
 |---|---|
-| [`docs/status.md`](docs/status.md) | what is done and not, and every decision that differs from the brief. **Read before changing anything; keep it current.** |
-| [`docs/brief.md`](docs/brief.md) | the product spec: types, interaction matrix, pipeline, schema, contracts, i18n keys. Code cites it as "brief §N" |
+| [`docs/spec.md`](docs/spec.md) | **the product spec**, describing the system as built: types, interaction matrix, pipeline, schema, contracts, i18n, acceptance scenarios. Code cites it as "spec §N". **A change to behaviour, a contract or the schema updates the spec in the same commit.** |
+| [`docs/status.md`](docs/status.md) | what is not done, not verified, and open questions. Keep it current |
 | [`docs/development.md`](docs/development.md) | running locally (Docker or `.venv`) and the checks |
 | [`docs/deploy.md`](docs/deploy.md) | production deploy, for the human only |
-| `docs/reports/` | load test and VLM accuracy runs |
+| `docs/reports/` | load test, VLM accuracy and browser scenario runs |
 | `docs/background/` | the original TZ and business case (Russian, .docx) |
 
 If anything is unclear or contradicts reality, **stop and ask the human**.

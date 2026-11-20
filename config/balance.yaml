@@ -1,4 +1,4 @@
-# World balance defaults (docs/brief.md §3). Times in seconds, distances in px.
+# World balance defaults (docs/spec.md §3). Times in seconds, distances in px.
 tick_hz: 10
 decide_hz: 2
 day_night_cycle_s: 1200

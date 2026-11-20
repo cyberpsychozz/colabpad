@@ -1,4 +1,4 @@
-"""One test per specific (●) cell of the interaction matrix in docs/brief.md §3.
+"""One test per specific (●) cell of the interaction matrix in docs/spec.md §3.
 
 Test names are `test_<who>_on_<whom>`.
 """

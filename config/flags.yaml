@@ -1,4 +1,4 @@
-# Feature flags (docs/brief.md §0.5). Everything must boot with all of them off.
+# Feature flags (docs/spec.md §2). Everything must boot with all of them off.
 ads:
   enabled: false
 billing:

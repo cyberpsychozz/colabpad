@@ -1,4 +1,4 @@
-"""Daily retention (docs/brief.md §5). Strokes, fates and payments are never touched."""
+"""Daily retention (docs/spec.md §5). Strokes, fates and payments are never touched."""
 
 import sqlite3
 from typing import Any

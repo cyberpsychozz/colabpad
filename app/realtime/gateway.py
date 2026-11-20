@@ -86,7 +86,7 @@ class Realtime:
     ROLES = ("none", "viewer", "player", "editor")
 
     def role(self, sid: str, canvas_id: str) -> str:
-        """The socket's effective role on a canvas (docs/brief.md §5)."""
+        """The socket's effective role on a canvas (docs/spec.md §5)."""
         repo = self.get_repo()
         return repo.role_of(repo.get_canvas(canvas_id), repo.get_session(self.sessions.get(sid)))
 

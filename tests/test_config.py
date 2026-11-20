@@ -11,7 +11,7 @@ from app.main import create_app, create_asgi
 CONFIG = Path(__file__).parent.parent / "config"
 
 
-def test_repo_config_loads_with_brief_defaults() -> None:
+def test_repo_config_loads_with_spec_defaults() -> None:
     config = GameConfig(CONFIG)
     assert config.flags.model_dump() == {
         "ads": {"enabled": False},
