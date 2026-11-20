@@ -1398,3 +1398,21 @@ footer {
   .world-bar { gap:8px; padding:6px 8px }
   .world-bar .connection-text, .world-title { display:none }
 }
+/* Footer and the /about, /offer, /privacy documents (spec §9b). */
+.site-footer { border-top:1px solid var(--line); padding:22px 0 30px; font-size:13px; color:var(--muted); display:flex; flex-direction:column; gap:8px }
+.site-footer nav { display:flex; flex-wrap:wrap; gap:8px 22px }
+.site-footer a { text-decoration:underline; text-underline-offset:4px }
+.site-footer nav a { color:var(--ink) }
+.site-footer p { margin:0 }
+.footer-contacts { display:flex; flex-wrap:wrap; gap:4px 18px }
+.legal-doc { max-width:760px; padding:44px 0 56px; line-height:1.7; font-size:15px }
+.legal-doc h1 { font-size:clamp(30px,4vw,44px); letter-spacing:-1.5px; line-height:1.15; margin:0 0 14px }
+.legal-doc h2 { font-size:19px; margin:30px 0 8px }
+.legal-doc p, .legal-doc li { margin:0 0 10px; overflow-wrap:anywhere }
+.legal-doc ul { padding-left:20px; margin:0 0 10px }
+.legal-lead { color:var(--muted) }
+.requisites { display:grid; grid-template-columns:max-content 1fr; gap:6px 18px; margin:14px 0 0; padding:18px 20px; border:1px solid var(--line); border-radius:12px; background:#fff }
+.requisites dt { color:var(--muted) }
+.requisites dd { margin:0; overflow-wrap:anywhere }
+.requisites a { text-decoration:underline; text-underline-offset:4px }
+@media(max-width:520px) { .requisites { grid-template-columns:1fr; gap:0 } .requisites dd { margin-bottom:8px } }

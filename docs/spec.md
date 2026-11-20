@@ -61,7 +61,7 @@ app/
 web/src/
   camera, chunks (tile cache + subscribe), draw, socket, api, ads, analytics,
   render/ (strokes, entities, goo, vfx), ui/ (tools, alive, chooser, control, share, plans, gate), i18n/
-config/  archetypes labels balance limits vlm billing flags (.yaml)
+config/  archetypes labels balance limits vlm billing flags legal (.yaml), ads.txt
 prompts/ classify.md
 scripts/ loadtest.py, vlm_accuracy.py, drawings.py
 deploy/  host Nginx configs, certbot renew hook, backup.py
@@ -395,7 +395,7 @@ Walk cycles can be reviewed without spending money: `scripts/vlm_accuracy.py --f
 
 | Method & path | Who | Request → Response |
 |---|---|---|
-| GET `/api/me` | anyone | → `{user?, plan, ads, locale, quota:{used,limit}, subscription, adBlocks}` |
+| GET `/api/me` | anyone | → `{user?, plan, ads, locale, quota:{used,limit}, subscription, adBlocks, legal:{seller:{name,inn}, email, phone}}` (`legal` is `config/legal.yaml`, §9b) |
 | PUT `/api/me/locale` | anyone | `{locale:"ru"\|"en"}` → 204 |
 | POST `/api/auth/code` | anyone | `{email}` → 204 (≤ 3 mails / 10 min / address; mail in the session locale) |
 | POST `/api/auth/verify` | the session that asked for the code | `{code}` → 204 + Set-Cookie (httpOnly, SameSite=Lax); links the anonymous session to the user |
@@ -416,6 +416,7 @@ Walk cycles can be reviewed without spending money: `scripts/vlm_accuracy.py --f
 | POST `/api/billing/cancel` | logged in | → 200 (active until period end) |
 | POST `/api/metrics/{key}` | anyone | → 204 (whitelisted keys) |
 | GET `/api/health` | anyone | → `{ok:true}` |
+| GET `/ads.txt` | anyone | → `config/ads.txt` as `text/plain` (the IAB list of authorized ad sellers, §9b); 404 if the file is missing |
 
 ### Socket.io
 
@@ -483,6 +484,38 @@ Codes:
   - The letter is text + HTML: a greeting, the code, what to do with it, what to do if you didn't ask. A named sender, `Date` and `Message-ID` headers. Without SMTP settings, mail is printed to the server log (`ConsoleMailer`).
   - On login, the anonymous session is linked to the user; its strokes, entities and quota stay with it. The session cookie is rotated on sign-in and stored hashed (`login_cookie`).
   - Only e-mail + locale are stored (the only personal data); a privacy notice and consent are shown at login, in both languages.
+
+## 9b. Legal pages, seller details, ads.txt
+
+What Robokassa (a public site with a description of what is sold, an offer, contacts, the
+seller's details in the footer) and Yandex Advertising Network moderation (real content, clear
+navigation from the main page) ask for.
+
+- **The seller** is self-employed (налог на профессиональный доход). Their public details live in
+  `config/legal.yaml` (`seller.name`, `seller.inn` — 12 digits, `email`, `phone`; validated, no
+  extra keys) and reach the browser in `/api/me` as `legal`. A blank field is hidden in the footer
+  and reads `legal.unset` («не указано» / "not specified") in the documents.
+- **Footer** (`siteFooter()` in `web/src/ui/chrome.js`) on `/`, `/plans`, `/billing/return` and
+  the documents, not in the world: links to `/about`, `/plans`, `/offer`, `/privacy`; then
+  «Самозанятый {name} · ИНН {inn}» once both are filled in; then the e-mail (`mailto:`) and phone
+  (`tel:`) links.
+- **Documents** (`web/src/legal.js` holds their structure as catalog keys, `web/src/ui/legal.js`
+  draws them; both languages, redrawn on switch; the document title is the page heading):
+  - `/about` — what the site is, the free plan, Plus and its prices (from `PRICES` in
+    `ui/plans.js`), payment and refunds, contacts with the seller's details.
+  - `/offer` — public offer for Plus: acceptance by payment, subject, prices (no VAT), Robokassa,
+    **no automatic renewal** (matches `billing.recurring: false`; turning it on needs a new
+    edition), cancellation, refund of unused whole days within 10 days by e-mail, rules of use,
+    liability, the seller's details.
+  - `/privacy` — personal data policy under 152-FZ: operator, data (e-mail, language, session
+    cookie hash, IPs in server logs, payment records), purposes, grounds, recipients (Robokassa,
+    the mail service, РСЯ, web analytics), storage, rights (answer within 10 working days), cookies.
+  - `legal.translation` under the offer and the policy: the Russian text prevails.
+- **Links into the documents:** the sign-in dialog links `/privacy` next to the consent checkbox
+  (`account.consent` names the policy); `/plans` says paying accepts the offer and links `/offer`.
+  Both open in a new tab.
+- **`/ads.txt`** is `config/ads.txt`, served as is (1 h cache). It lists Yandex
+  (`yandex.com, 108702699, DIRECT`) and the resellers РСЯ gave.
 
 ## 9a. Languages: Russian + English
 
@@ -564,6 +597,8 @@ forms in RU and one/other in EN; the table shows the RU one/few/many endings.
 - `/p/{slug}` — private world
 - `/plans`
 - `/billing/return` — Robokassa's SuccessURL
+- `/about`, `/offer`, `/privacy` — about & contacts, public offer, privacy policy (§9b)
+- `/ads.txt` — authorized ad sellers (served by the server, not the client)
 - legacy `/c/{id}` redirects to `/w`
 
 ---
@@ -599,3 +634,4 @@ and what wasn't: [`reports/scenario-run.md`](reports/scenario-run.md) and [`stat
 13. Killing the sim process mid-game → it restarts and the world resumes (≤ 5 s lost).
 14. Switching RU ↔ EN changes every visible string. The missing-key test passes. The load test meets §7; `docker compose up --build` works from a clean clone; all tests are green.
 15. A free viewer on desktop sees four ad slots, two stacked on each side of the canvas; banners arriving late (even oversized ones) don't move the canvas. A Plus viewer sees no ad space; a narrow screen gets one fixed strip at the bottom.
+16. The landing page's footer shows the seller's name, ИНН, e-mail and phone and links `/about`, `/offer`, `/privacy`, each showing the seller's details, in RU and EN; switching language redraws a document; `/plans` links the offer and the sign-in dialog the policy; `/ads.txt` lists Yandex as a direct seller.

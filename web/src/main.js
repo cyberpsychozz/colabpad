@@ -1,21 +1,26 @@
 import './styles.css';
 import { detectLocale, getLocale, onLocaleChange, setLocale, t } from './i18n/i18n.js';
-import { brand, languageSwitch, refreshLanguageSwitch } from './ui/chrome.js';
+import { brand, languageSwitch, refreshLanguageSwitch, siteFooter } from './ui/chrome.js';
 import { $, element, localize, storage } from './ui/dom.js';
 import { putLocale } from './api.js';
 import { loadMe } from './me.js';
 import { accountButton } from './ui/account.js';
 import { passGate } from './ui/gate.js';
+import { DOCS } from './legal.js';
+import { openLegal } from './ui/legal.js';
 import { openBillingReturn, openPlans } from './ui/plans.js';
 import { openWorld } from './ui/world.js';
 
 const WORLD_ID = 'world';
+const LEGAL_PAGES = new Set(['/about', '/offer', '/privacy']);
 const root = $('#app');
 let cleanup = () => {};
+// The document title follows the screen and the language.
+let titleKey = 'app.title';
 
 function applyLocale() {
   document.documentElement.lang = getLocale();
-  document.title = t('app.title');
+  document.title = t(titleKey);
   $('meta[name="description"]')?.setAttribute('content', t('app.description'));
   localize(document);
   refreshLanguageSwitch();
@@ -29,7 +34,8 @@ function home() {
       element('h1', { 'data-i18n': 'landing.title' }),
       element('p', { class: 'hero-description', 'data-i18n': 'landing.lead' }),
       element('a', { class: 'button primary large', href: '/w' }, element('span', { 'data-i18n': 'landing.enter' }), element('span', { 'aria-hidden': 'true' }, '↗')),
-      element('p', { class: 'small-note', 'data-i18n': 'landing.note' }))))));
+      element('p', { class: 'small-note', 'data-i18n': 'landing.note' })))),
+    siteFooter()));
   localize(root);
 }
 
@@ -45,6 +51,7 @@ async function route() {
     cleanup = await openWorld(root, slug || WORLD_ID);
   } else if (path === '/plans') cleanup = openPlans(root);
   else if (path === '/billing/return') cleanup = openBillingReturn(root);
+  else if (LEGAL_PAGES.has(path)) { titleKey = DOCS[path.slice(1)].title; cleanup = openLegal(root, path.slice(1)); }
   else home();
 }
 

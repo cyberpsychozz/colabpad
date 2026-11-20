@@ -96,7 +96,22 @@ class Flags(BaseModel):
     sleep_catchup: bool
 
 
-CONFIG_FILES = ("archetypes", "labels", "balance", "limits", "vlm", "billing")
+class _Seller(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = ""
+    inn: str = Field("", pattern=r"^(\d{12})?$")
+
+
+class Legal(BaseModel):
+    """config/legal.yaml: the seller's public details. Empty strings mean "not filled in yet"."""
+
+    model_config = ConfigDict(extra="forbid")
+    seller: _Seller = _Seller()
+    email: str = Field("", pattern=r"^([^@\s]+@[^@\s]+\.[^@\s]+)?$")
+    phone: str = Field("", pattern=r"^(\+?[\d\s()-]{6,20})?$")
+
+
+CONFIG_FILES = ("archetypes", "labels", "balance", "limits", "vlm", "billing", "legal")
 
 
 class GameConfig:
@@ -116,6 +131,10 @@ class GameConfig:
             read("balance"),
         )
         self.limits, self.vlm, self.billing = read("limits"), read("vlm"), read("billing")
+        self.legal = Legal.model_validate(read("legal"))
+        # Served as-is at /ads.txt (the IAB list of authorized ad sellers); optional.
+        ads_txt = directory / "ads.txt"
+        self.ads_txt = ads_txt.read_text("utf-8") if ads_txt.is_file() else None
         chunk = self.limits["world"]["chunk_size"]
         for key in ("world", "private_world"):
             for side in ("bounds_w", "bounds_h"):

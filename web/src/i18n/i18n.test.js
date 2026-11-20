@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { catalogs, detectLocale, setLocale, t } from './i18n.js';
+import { catalogs, detectLocale, onLocaleChange, setLocale, t } from './i18n.js';
 
 const src = join(dirname(fileURLToPath(import.meta.url)), '..');
 const sources = (dir = src) => readdirSync(dir).flatMap(name => {
@@ -62,4 +62,17 @@ test('locale detection, placeholders and Russian plurals', () => {
   assert.equal(t('alive.button'), 'ALIVE');
   assert.deepEqual([1, 2].map(n => t('alive.count', { n })), ['1 revival', '2 revivals']);
   assert.equal(t('missing.key'), 'missing.key');
+});
+
+test('a listener that re-subscribes itself while notified runs once per switch', () => {
+  setLocale('en');
+  let calls = 0;
+  let stop = () => {};
+  const draw = () => { calls++; if (calls > 5) throw new Error('notified forever'); stop(); stop = onLocaleChange(draw); };
+  draw();
+  calls = 0;
+  setLocale('ru');
+  assert.equal(calls, 1);
+  stop();
+  setLocale('en');
 });

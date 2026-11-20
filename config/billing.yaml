@@ -9,7 +9,8 @@ renewal_hour_msk: 3
 # The fiscal receipt (54-FZ) sent with each payment as Robokassa's Receipt parameter.
 # sno: the shop's tax system (osn, usn_income, usn_income_outcome, esn, patent); empty means
 # the default from the Robokassa cabinet. tax: none, vat0, vat5, vat7, vat10, vat20, vat22, ...
-# Turn it off only if the shop is not connected to Robokassa's fiscalization.
+# A self-employed shop keeps it on with «Робочеки СМЗ» (the НПД receipt takes the items from it)
+# and leaves sno empty. Turn it off only if the shop has no fiscalization at all.
 receipt:
   enabled: true
   sno:
