@@ -13,3 +13,5 @@ coverage/
 .DS_Store
 web/.e2e-*/
 web/test-results/
+# The seller's details live only on the server (copy config/legal.example.yaml).
+config/legal.yaml

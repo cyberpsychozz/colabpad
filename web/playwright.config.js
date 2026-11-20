@@ -14,7 +14,7 @@ import { join, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 export const PORT = 8030;
-// The seller's details shown in the footer and on /about, /offer, /privacy (config/legal.yaml).
+// The seller's details shown in the footer and on /about, /offer, /privacy (config/legal.yaml, written into the e2e copy of config/).
 export const SELLER = { name: 'Тестов Тест Тестович', inn: '123456789012', email: 'help@example.org', phone: '+7 900 123-45-67' };
 export const ROBOKASSA = { login: 'collabpad-e2e', password1: 'e2e-test-one', password2: 'e2e-test-two' };
 
@@ -37,7 +37,9 @@ if (!process.env.E2E_DIR) {
   edit('limits.yaml', /min_interval_s: \d+/, 'min_interval_s: 0');
   edit('balance.yaml', /fuse_s: \d+/, 'fuse_s: 4');
   edit('billing.yaml', /result_ips:\n/, 'result_ips:\n  - 127.0.0.1\n');
-  for (const [key, value] of Object.entries(SELLER)) edit('legal.yaml', new RegExp(`^(\\s*${key}): ""`, 'm'), `$1: "${value}"`);
+  // Written fresh: config/legal.yaml is git-ignored, so a local one must not leak into the run.
+  const { name, inn, email, phone } = SELLER;
+  writeFileSync(join(dir, 'config', 'legal.yaml'), JSON.stringify({ seller: { name, inn }, email, phone }));
   process.env.E2E_DIR = dir;
 }
 const DIR = process.env.E2E_DIR;

@@ -58,12 +58,26 @@ def test_me_carries_the_sellers_details(tmp_path: Path) -> None:
         assert client.get("/api/me").json()["legal"] == details
 
 
-def test_blank_details_load_and_bad_ones_are_refused() -> None:
-    assert Legal.model_validate(yaml.safe_load((CONFIG / "legal.yaml").read_text("utf-8"))).model_dump() == {
-        "seller": {"name": "", "inn": ""},
-        "email": "",
-        "phone": "",
-    }
+BLANK = {"seller": {"name": "", "inn": ""}, "email": "", "phone": ""}
+
+
+def test_without_legal_yaml_the_details_are_blank(tmp_path: Path) -> None:
+    # config/legal.yaml is git-ignored: a fresh checkout (and CI) has none.
+    directory = tmp_path / "config"
+    shutil.copytree(CONFIG, directory)
+    (directory / "legal.yaml").unlink(missing_ok=True)
+    assert GameConfig(directory).legal.model_dump() == BLANK
+    with client_for(tmp_path, directory) as client:
+        assert client.get("/api/me").json()["legal"] == BLANK
+
+
+def test_legal_yaml_is_git_ignored_and_its_template_is_blank() -> None:
+    root = CONFIG.parent
+    assert "config/legal.yaml" in (root / ".gitignore").read_text("utf-8").splitlines()
+    assert Legal.model_validate(yaml.safe_load((CONFIG / "legal.example.yaml").read_text("utf-8"))).model_dump() == BLANK
+
+
+def test_bad_details_are_refused() -> None:
     for bad in (
         {"seller": {"inn": "12345"}},
         {"email": "not-an-address"},

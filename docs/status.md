@@ -42,8 +42,8 @@ Test runs: [`reports/`](reports/).
 
 ## Open questions for the human
 
-- **Seller details are blank.** Fill in `config/legal.yaml` (full name, ИНН, support e-mail,
-  phone) and deploy before sending the site to Robokassa or РСЯ moderation; until then the
+- **Seller details are blank.** Create `config/legal.yaml` on the server from
+  `config/legal.example.yaml` (full name, ИНН, support e-mail, phone; `docs/deploy.md` §9) before sending the site to Robokassa or РСЯ moderation; until then the
   footer shows no seller and the documents say «не указано».
 - **Receipts for a self-employed seller.** The seller is self-employed (НПД), so receipts go to
   «Мой налог» through Robokassa's «Робочеки СМЗ», which has to be switched on in the shop.
