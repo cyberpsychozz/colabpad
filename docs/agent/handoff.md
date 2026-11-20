@@ -24,8 +24,7 @@ ALIVE without a key shows the manual type grid (the author picks the type). For 
 recognition put an OpenRouter key in `.env` as `VLM_API_KEY`; models and the $5/day cap are in
 `config/vlm.yaml`. The real VLM path has only been tested against a mocked HTTP transport.
 `VLM_PROXY_URL` sends the VLM calls (and only those) through an HTTP proxy, e.g. a userspace
-Tailscale instance using an exit node (`deploy/systemd/collabpad-egress.service`, the Compose
-`egress` profile, `docs/agent/deploy.md` §5a). The app's HTTP clients ignore `HTTPS_PROXY`.
+Tailscale instance using an exit node (the Compose `egress` profile, `docs/agent/deploy.md` §5). The app's HTTP clients ignore `HTTPS_PROXY`.
 
 ## Done (tests with each)
 
@@ -40,7 +39,8 @@ Tailscale instance using an exit node (`deploy/systemd/collabpad-egress.service`
 | T24 | catalogs, switch, locale saved in session and account, e-mails. Not done: fuller landing copy |
 | T25 | `scripts/loadtest.py` (real server, 2 000 entities, 50 WebSocket clients); report in `docs/agent/loadtest.md` |
 | T26 | §12 walked in two browser clients (one RU, one EN), see "Scenario run" below |
-| T27 | `docs/agent/deploy.md`; backups mirror `sprites/`; systemd `KillMode=mixed` |
+| T27 | `docs/agent/deploy.md`; backups mirror `sprites/` |
+| Deploy | **Docker Compose only** (the owner's decision, 2026-11-20; overrides the brief's systemd units): app on `127.0.0.1:1744` behind the host's Nginx, which also serves other sites; backup by root cron; `deploy/update.sh` pulls and rebuilds. The systemd units and `deploy/collabpad.env.example` were removed |
 | T7 | 81 drawings (`scripts/drawings.py`), real VLM run: 77/81 = 95% top-1, RU/EN handwriting 14/14 (`docs/agent/vlm-accuracy.md`) |
 | §12 e2e | `web/e2e/scenarios.spec.js` with Playwright: 5 scenarios, both languages |
 | §5 / §8 extras | daily retention pass (`app/retention.py`), `GET /api/me/events?since=`, sign-in returns to the world it started from |

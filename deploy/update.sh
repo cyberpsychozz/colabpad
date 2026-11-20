@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+# Pull, rebuild and restart the Compose project, then check health. Run as root on the server.
 set -euo pipefail
-cd /opt/collabpad
-sudo -u collabpad git pull --ff-only
-sudo -u collabpad .venv/bin/pip install -r requirements.txt
-(cd web && sudo -u collabpad npm ci && sudo -u collabpad npm run build)
-sudo systemctl restart collabpad
-curl --retry 10 --retry-delay 1 --retry-connrefused -fsS https://collabpad.ru/api/health
+cd "$(dirname "$0")/.."
+git pull --ff-only
+docker compose up --build -d --wait
+port="$(docker compose port app 8000 | cut -d: -f2)"
+curl --retry 10 --retry-delay 1 --retry-connrefused -fsS "http://127.0.0.1:${port}/api/health"
+echo

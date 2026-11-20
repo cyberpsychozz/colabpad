@@ -83,8 +83,7 @@ cd web && npm test
 
 ## Настройки
 
-Переменные окружения (локально `.env`, на сервере `/etc/collabpad/collabpad.env`; примеры —
-`.env.example` и `deploy/collabpad.env.example`): `DATA_DIR`, `PUBLIC_URL`, `SMTP_*`,
+Переменные окружения (в `.env`, пример — `.env.example`; на сервере `/opt/collabpad/.env`): `DATA_DIR`, `PUBLIC_URL`, `SMTP_*`,
 `VLM_API_KEY`, `VLM_PROXY_URL` (прокси только для нейросети), `YOOKASSA_*`, `ADS_BLOCK_*`, `CORS_ORIGINS` и параметры кисти.
 
 Игровые настройки и флаги — в `config/*.yaml`: типы объектов (`archetypes.yaml`), баланс,
@@ -104,6 +103,6 @@ web/src/    клиент: камера, куски мира, рисование,
 config/     YAML-настройки и флаги
 prompts/    промпт классификации
 scripts/    loadtest.py — нагрузочный тест
-deploy/     Nginx, systemd, бэкап, update.sh
+deploy/     Nginx хоста, бэкап, update.sh (Docker Compose); установка — docs/agent/deploy.md
 tests/      pytest
 ```
