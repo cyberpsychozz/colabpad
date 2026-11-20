@@ -35,6 +35,11 @@ If anything is unclear or contradicts reality, **stop and ask the human**.
    `app/i18n/`) in Russian and English with identical keys; a test fails otherwise. Never
    concatenate translated fragments. Code, comments, logs and identifiers are English.
 6. **Ask before adding a dependency.**
-7. **Prove each change:** `pytest -q` and `npm test` green (commands in
-   `docs/development.md`); for UI work, check it in two browser clients.
+7. **Every change comes with tests, and every test passes.** Server behaviour: `pytest` in
+   `tests/`. Client logic: `node --test` next to the code (`web/src/**/*.test.js`). Anything a
+   player sees or does in the browser, including what other clients see: a Playwright scenario
+   in `web/e2e/` (the acceptance scenarios are spec §12). A bug fix starts with a test that
+   fails without the fix. Before each commit, `pytest -q`, `npm test` and `npm run e2e` are
+   green (commands in `docs/development.md`); the deploy workflow runs all three and deploys
+   nothing if one fails. For UI work, also look at it yourself in two browser clients.
 8. **Commits:** small, on a feature branch, no AI attribution lines in commits or PRs.
