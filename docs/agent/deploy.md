@@ -158,6 +158,61 @@ file private:
 sudo chown root:collabpad /etc/collabpad/collabpad.env && sudo chmod 640 /etc/collabpad/collabpad.env
 ```
 
+## 5a. Optional: send only the VLM calls through Tailscale
+
+Use this if OpenRouter (or its models) refuses requests from the server's IP. A second,
+separate `tailscaled` runs in userspace mode and serves an HTTP proxy on `127.0.0.1:1055`
+that leaves through your exit node. **Only the VLM client uses it** (`VLM_PROXY_URL`).
+ЮKassa, mail, visitors and SSH stay on the server's own network, and the host's routes and
+DNS are not touched. If the exit node is down, only recognition fails, and ALIVE falls back
+to the manual type grid.
+
+Before you start, in the Tailscale admin console:
+- the exit node machine runs `tailscale set --advertise-exit-node` and is approved as an exit node;
+- create a **reusable, tagged** auth key (for example `tag:collabpad`) and allow that tag to use
+  exit nodes (`autogroup:internet`) in the access controls.
+
+Install Tailscale from its package repository (https://tailscale.com/download/linux). You
+don't need to run `tailscale up` for the system daemon; this setup uses its own instance.
+
+```bash
+sudo cp /opt/collabpad/deploy/systemd/collabpad-egress.service /etc/systemd/system/
+```
+
+```bash
+sudo systemctl daemon-reload && sudo systemctl enable --now collabpad-egress
+```
+
+Log the instance in and choose the exit node (once; it is remembered in its state):
+
+```bash
+sudo tailscale --socket=/run/collabpad-egress/tailscaled.sock up --auth-key=tskey-auth-... --hostname=collabpad-vlm-egress --exit-node=<exit node Tailscale IP>
+```
+
+Check that the proxy leaves through the exit node (should print the exit node's public IP)
+and that OpenRouter answers (should print `200`):
+
+```bash
+curl -s -x http://127.0.0.1:1055 https://ifconfig.me; echo
+```
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -x http://127.0.0.1:1055 https://openrouter.ai/api/v1/models
+```
+
+Then add to `/etc/collabpad/collabpad.env` and restart the app:
+
+```
+VLM_PROXY_URL=http://127.0.0.1:1055
+```
+
+```bash
+sudo systemctl restart collabpad
+```
+
+Don't set `HTTPS_PROXY`/`ALL_PROXY` for the app instead: the app ignores them on purpose, so
+payments never go through the exit node.
+
 ## 6. Install the new service file and start
 
 ```bash
@@ -348,7 +403,10 @@ docker compose run --rm --no-deps app sh -c 'mkdir -p /var/lib/collabpad/legacy 
 docker compose up --build -d --wait
 ```
 
-Settings go in `.env` next to `compose.yaml` (see `.env.example`). Backups:
+Settings go in `.env` next to `compose.yaml` (see `.env.example`). To send only the VLM
+calls through Tailscale (section 5a), set `TS_AUTHKEY`, `TS_EXIT_NODE` and
+`VLM_PROXY_URL=http://vlm-egress:1055` in `.env` and start with
+`docker compose --profile egress up --build -d --wait`. Backups:
 `docker compose exec app python deploy/backup.py` (database and sprites, inside the volume),
 then `docker compose cp app:/var/lib/collabpad/backups ./backups`. The container's `init`
 sends stop signals to Uvicorn only, so the simulation saves the world on shutdown.

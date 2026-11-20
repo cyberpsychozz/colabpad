@@ -1,0 +1,24 @@
+[Unit]
+Description=CollabPad VLM egress (Tailscale userspace proxy via an exit node)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# A second tailscaled, separate from any system Tailscale: userspace networking only, so it
+# never touches the host's routes or DNS. It serves an HTTP proxy on 127.0.0.1:1055 that the
+# app uses for the VLM calls only (VLM_PROXY_URL). --port=0 avoids clashing with a system
+# tailscaled on UDP 41641.
+ExecStart=/usr/sbin/tailscaled --tun=userspace-networking --port=0 --statedir=/var/lib/collabpad-egress --socket=/run/collabpad-egress/tailscaled.sock --outbound-http-proxy-listen=127.0.0.1:1055
+DynamicUser=yes
+StateDirectory=collabpad-egress
+RuntimeDirectory=collabpad-egress
+RuntimeDirectoryMode=0755
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

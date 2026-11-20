@@ -23,6 +23,9 @@ Stop a running dev server before running pytest; two timing-sensitive tests disl
 ALIVE without a key shows the manual type grid (the author picks the type). For automatic
 recognition put an OpenRouter key in `.env` as `VLM_API_KEY`; models and the $5/day cap are in
 `config/vlm.yaml`. The real VLM path has only been tested against a mocked HTTP transport.
+`VLM_PROXY_URL` sends the VLM calls (and only those) through an HTTP proxy, e.g. a userspace
+Tailscale instance using an exit node (`deploy/systemd/collabpad-egress.service`, the Compose
+`egress` profile, `docs/agent/deploy.md` §5a). The app's HTTP clients ignore `HTTPS_PROXY`.
 
 ## Done (tests with each)
 

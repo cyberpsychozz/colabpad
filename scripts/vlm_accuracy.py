@@ -171,7 +171,7 @@ async def main() -> None:
     prompt = load_prompt(ROOT / "prompts" / "classify.md")
     wanted = {name.strip() for name in args.only.split(",") if name.strip()}
     drawings = [d for d in DRAWINGS if not wanted or d.id in wanted]
-    async with httpx.AsyncClient() as http:
+    async with httpx.AsyncClient(proxy=settings.vlm_proxy_url or None, trust_env=False) as http:
         vlm: Any = Replay(args.from_json) if args.from_json else OpenRouterVlm(http, config.vlm, settings.vlm_api_key, prompt, budget)
         gate = asyncio.Semaphore(1 if args.from_json else 4)
 

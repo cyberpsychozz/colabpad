@@ -85,7 +85,7 @@ cd web && npm test
 
 Переменные окружения (локально `.env`, на сервере `/etc/collabpad/collabpad.env`; примеры —
 `.env.example` и `deploy/collabpad.env.example`): `DATA_DIR`, `PUBLIC_URL`, `SMTP_*`,
-`VLM_API_KEY`, `YOOKASSA_*`, `ADS_BLOCK_*`, `CORS_ORIGINS` и параметры кисти.
+`VLM_API_KEY`, `VLM_PROXY_URL` (прокси только для нейросети), `YOOKASSA_*`, `ADS_BLOCK_*`, `CORS_ORIGINS` и параметры кисти.
 
 Игровые настройки и флаги — в `config/*.yaml`: типы объектов (`archetypes.yaml`), баланс,
 лимиты и квоты, модели нейросети, цены, флаги (`flags.yaml`: реклама, автопродление,
