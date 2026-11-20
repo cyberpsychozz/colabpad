@@ -1,4 +1,4 @@
-// End-to-end scenarios from AGENTS.md §12, in two browser clients (npm run e2e).
+// End-to-end scenarios from docs/brief.md §12, in two browser clients (npm run e2e).
 //
 // The real server runs on a throwaway database and a copy of config/ with test-sized
 // timings (a short fuse, a small anonymous quota, no pause between ALIVEs) and with the

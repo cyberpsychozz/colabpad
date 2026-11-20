@@ -1,4 +1,4 @@
-// AGENTS.md §12 in two browser clients: A reads English, B reads Russian.
+// docs/brief.md §12 in two browser clients: A reads English, B reads Russian.
 // Each test works in its own part of the shared world (the camera is set by the URL).
 import { expect, test } from '@playwright/test';
 

@@ -1,30 +1,14 @@
-# Handoff: state of the Living Canvas rebuild
+# Status of the Living Canvas build
 
-Read `AGENTS.md` first (the brief), then `docs/agent/step0-notes.md`. This file says what is
-done, what is not, and what the next agent should know. Branch: `living-canvas`, not pushed.
-
-## Run it
-
-```bash
-./start.sh
-```
-
-Then open http://127.0.0.1:8000/w. `.venv` and `web/node_modules` must exist (see `LOCAL.md`).
-`start.sh` builds the frontend only if `app/static` is missing; after changing anything in
-`web/`, run `npm run build` there.
-
-Checks: `env -u PYTHONPATH .venv/bin/python -m pytest -q` and `npm test` in `web/`. The §12
-scenarios in two browsers: `npm run e2e` in `web/` (needs Google Chrome installed; builds the
-frontend, starts its own server on port 8030 with a throwaway database and the VLM off).
-The VLM's accuracy: `scripts/vlm_accuracy.py` (spends real money, about $0.25 a run; see
-`docs/agent/vlm-accuracy.md`). Load: `scripts/loadtest.py`.
-Stop a running dev server before running pytest; two timing-sensitive tests dislike the load.
+What is done, what is not, and every decision that differs from or adds to the brief
+([`brief.md`](brief.md)). Where they disagree, this file wins. Keep it up to date when you
+finish a task. How to run and test: [`development.md`](development.md).
 
 ALIVE without a key shows the manual type grid (the author picks the type). For automatic
 recognition put an OpenRouter key in `.env` as `VLM_API_KEY`; models and the $5/day cap are in
-`config/vlm.yaml`. The real VLM path has only been tested against a mocked HTTP transport.
-`VLM_PROXY_URL` sends the VLM calls (and only those) through an HTTP proxy, e.g. a userspace
-Tailscale instance using an exit node (the Compose `egress` profile, `docs/agent/deploy.md` §5). The app's HTTP clients ignore `HTTPS_PROXY`.
+`config/vlm.yaml`. `VLM_PROXY_URL` sends the VLM calls (and only those) through an HTTP proxy,
+e.g. a userspace Tailscale instance using an exit node (the Compose `egress` profile,
+[`deploy.md`](deploy.md) §4–5). The app's HTTP clients ignore `HTTPS_PROXY`.
 
 ## Done (tests with each)
 
@@ -37,11 +21,11 @@ Tailscale instance using an exit node (the Compose `egress` profile, `docs/agent
 | T22 | ad slots, adblock detector and gate (`web/src/ads.js`, `web/src/ui/gate.js`) |
 | T23 | quotas per Moscow day, refunds, rate limits, free/Plus limits |
 | T24 | catalogs, switch, locale saved in session and account, e-mails. Not done: fuller landing copy |
-| T25 | `scripts/loadtest.py` (real server, 2 000 entities, 50 WebSocket clients); report in `docs/agent/loadtest.md` |
+| T25 | `scripts/loadtest.py` (real server, 2 000 entities, 50 WebSocket clients); report in [`reports/loadtest.md`](reports/loadtest.md) |
 | T26 | §12 walked in two browser clients (one RU, one EN), see "Scenario run" below |
-| T27 | `docs/agent/deploy.md`; backups mirror `sprites/` |
+| T27 | [`deploy.md`](deploy.md); backups mirror `sprites/` |
 | Deploy | **Docker Compose only** (the owner's decision, 2026-11-20; overrides the brief's systemd units): app on `127.0.0.1:1744` behind the host's Nginx, which also serves other sites; backup by root cron; `deploy/update.sh` pulls and rebuilds. The systemd units and `deploy/collabpad.env.example` were removed |
-| T7 | 81 drawings (`scripts/drawings.py`), real VLM run: 77/81 = 95% top-1, RU/EN handwriting 14/14 (`docs/agent/vlm-accuracy.md`) |
+| T7 | 81 drawings (`scripts/drawings.py`), real VLM run: 77/81 = 95% top-1, RU/EN handwriting 14/14 ([`reports/vlm-accuracy.md`](reports/vlm-accuracy.md)) |
 | §12 e2e | `web/e2e/scenarios.spec.js` with Playwright: 5 scenarios, both languages |
 | §5 / §8 extras | daily retention pass (`app/retention.py`), `GET /api/me/events?since=` |
 

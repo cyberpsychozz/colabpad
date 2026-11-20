@@ -2,7 +2,7 @@
 set -euo pipefail
 cd -- "$(dirname -- "$0")"
 if [[ ! -f .venv/bin/python ]]; then
-    printf '%s\n' 'Нужно подготовить окружение. Инструкция: LOCAL.md'
+    printf '%s\n' 'Нужно подготовить окружение. Инструкция: docs/development.md'
     exit 1
 fi
 if [[ ! -f app/static/index.html ]]; then

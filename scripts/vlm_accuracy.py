@@ -1,6 +1,6 @@
 """T7: how often the real VLM gets the test drawings right (target: >= 80% top-1).
 
-    env -u PYTHONPATH .venv/bin/python scripts/vlm_accuracy.py [--report docs/agent/vlm-accuracy.md]
+    env -u PYTHONPATH .venv/bin/python scripts/vlm_accuracy.py [--report docs/reports/vlm-accuracy.md]
         [--only cow,wolf] [--sheets DIR] [--budget 2]
 
 Each drawing in scripts/drawings.py is rasterized exactly as ALIVE does it, sent to the
