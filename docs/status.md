@@ -24,7 +24,7 @@ e.g. a userspace Tailscale instance using an exit node (the Compose `egress` pro
 | T25 | `scripts/loadtest.py` (real server, 2 000 entities, 50 WebSocket clients); report in [`reports/loadtest.md`](reports/loadtest.md) |
 | T26 | §12 walked in two browser clients (one RU, one EN), see "Scenario run" below |
 | T27 | [`deploy.md`](deploy.md); backups mirror `sprites/` |
-| Deploy | **Docker Compose only** (the owner's decision, 2026-11-20; overrides the brief's systemd units): app on `127.0.0.1:1744` behind the host's Nginx, which also serves other sites; backup by root cron; `deploy/update.sh` pulls and rebuilds. The systemd units and `deploy/collabpad.env.example` were removed |
+| Deploy | **Docker Compose only** (the owner's decision, 2026-11-20; overrides the brief's systemd units): app on `127.0.0.1:1744` behind the host's Nginx, which also serves other sites; backup by root cron. Updates: a push to the `deploy` branch runs `.github/workflows/deploy.yml` (pytest, client tests and build, then SSH as `gh_deploy_collabpad`: check out the tested commit, back up, `docker compose up --build`, health check, clean up images); `deploy/update.sh` was removed (owner's decision, 2026-11-20). The systemd units and `deploy/collabpad.env.example` were removed |
 | T7 | 81 drawings (`scripts/drawings.py`), real VLM run: 77/81 = 95% top-1, RU/EN handwriting 14/14 ([`reports/vlm-accuracy.md`](reports/vlm-accuracy.md)) |
 | §12 e2e | `web/e2e/scenarios.spec.js` with Playwright: 5 scenarios, both languages |
 | §5 / §8 extras | daily retention pass (`app/retention.py`), `GET /api/me/events?since=` |

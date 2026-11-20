@@ -25,9 +25,10 @@ If anything is unclear or contradicts reality, **stop and ask the human**.
    triggers enforce it. A stroke's fate (consumed, destroyed, fossil) is a new `stroke_fate` row.
 2. **Exactly one Uvicorn worker** and **one simulation process** (started by the app). The main
    process is the only DB writer. The server is the only source of truth for the world.
-3. **Never touch production.** No ssh/scp/rsync, never run `deploy/update.sh` or any deploy
-   script. Deploying and wiping the production DB are human steps, written down in
-   `docs/deploy.md`. Deploys use **Docker Compose only**.
+3. **Never touch production.** No ssh/scp/rsync, never run any deploy script, and **never
+   push to the `deploy` branch**: a push there deploys to production through GitHub Actions
+   (`.github/workflows/deploy.yml`). Deploying and wiping the production DB are human steps,
+   written down in `docs/deploy.md`. Deploys use **Docker Compose only**.
 4. **No real money, no live keys.** YooKassa in test mode only; keys only from env vars
    (add `.env.example` entries, never commit secrets); the VLM has a daily budget cap.
 5. **Bilingual.** Every user-facing string goes through the catalogs (`web/src/i18n/`,

@@ -142,4 +142,7 @@ Google Chrome; сам собирает фронтенд и поднимает с
 [`reports/vlm-accuracy.md`](reports/vlm-accuracy.md)). Нагрузка — `scripts/loadtest.py`
 (отчёт — [`reports/loadtest.md`](reports/loadtest.md)).
 
+Те же `pytest`, `npm test` и `npm run build` запускает GitHub Actions перед каждой выкладкой
+(push в ветку `deploy`, см. [`deploy.md`](deploy.md), шаг 11).
+
 Клиентские тесты используют встроенный `node --test`. Ruff — только внешний форматтер.

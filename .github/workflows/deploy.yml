@@ -1,0 +1,160 @@
+# Push to the `deploy` branch (e.g. `git push origin main:deploy`) to deploy to production:
+# the checks run first, then the server is updated over SSH as gh_deploy_collabpad.
+# One-time setup (server user, key, GitHub secrets): docs/deploy.md, "Automatic deploys".
+name: Deploy
+
+on:
+  push:
+    branches: [deploy]
+  # Re-deploy without a new commit: Actions → Deploy → Run workflow, on the `deploy` branch.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time. A deploy in progress is never cancelled; a newer push waits for it,
+# and of several waiting pushes only the newest runs.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  server-tests:
+    name: Server tests (pytest)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      # Shared libraries that skia-python's wheel links against (same as the Dockerfile).
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libfontconfig1 libgl1 libegl1
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+
+  client-tests:
+    name: Client tests and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run build
+
+  deploy:
+    name: Deploy to production
+    needs: [server-tests, client-tests]
+    if: github.ref == 'refs/heads/deploy'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://collabpad.ru
+    env:
+      DEPLOY_USER: gh_deploy_collabpad
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+    steps:
+      - name: Set up the SSH key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          for name in DEPLOY_HOST DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::The secret $name is not set in the production environment (docs/deploy.md)."
+              exit 1
+            fi
+          done
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Pinned host key: never trust whatever key answers on first use.
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Update the server
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+              -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+              "$DEPLOY_USER@$DEPLOY_HOST" bash -s -- "$GITHUB_SHA" <<'REMOTE'
+          # Runs on the server as gh_deploy_collabpad (member of the docker group).
+          set -euo pipefail
+          sha="$1"
+          cd /opt/collabpad
+
+          # Below this the build and SQLite (which needs room for its WAL files) start failing.
+          MIN_FREE_MIB=1024
+          # Below this, clean up before building, not only after.
+          CLEAN_FIRST_MIB=3072
+
+          free_mib() {
+              df -Pm "$(docker info -f '{{.DockerRootDir}}')" | awk 'NR == 2 { print $4 }'
+          }
+          cleanup() {
+              # Never volumes: the database, the sprites and the backups live in one.
+              docker image prune -f > /dev/null
+              docker builder prune -f > /dev/null
+          }
+
+          echo "::group::Get commit ${sha:0:12}"
+          if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+              echo "::error::/opt/collabpad has local edits; nothing was changed. Change files in the repository, not on the server."
+              git status --short --untracked-files=no
+              exit 1
+          fi
+          git fetch --quiet --prune origin deploy
+          git -c advice.detachedHead=false checkout --quiet --detach "$sha"
+          git log -1 --format='Deploying %h %s (%an, %ad)' --date=short
+          echo "::endgroup::"
+
+          echo "::group::Check disk space"
+          if (( $(free_mib) < CLEAN_FIRST_MIB )); then
+              echo "Low on disk ($(free_mib) MiB free); deleting old images and the build cache first."
+              cleanup
+          fi
+          if (( $(free_mib) < MIN_FREE_MIB )); then
+              echo "::error::Only $(free_mib) MiB free on Docker's disk, need ${MIN_FREE_MIB}. The running app was not touched. See what takes the space: docker system df; du -xh --max-depth=1 / | sort -h"
+              exit 1
+          fi
+          echo "$(free_mib) MiB free"
+          echo "::endgroup::"
+
+          # From here on, clean up however the deploy ends: a failed build leaves layers behind too.
+          trap 'cleanup; echo "Free on Docker'"'"'s disk: $(free_mib) MiB"' EXIT
+
+          if docker compose ps --status running --services | grep -qx app; then
+              echo "::group::Back up the database before the update"
+              docker compose exec -T app python deploy/backup.py
+              echo "::endgroup::"
+          fi
+
+          echo "::group::Build and restart"
+          docker compose up --build -d --wait
+          echo "::endgroup::"
+
+          port="$(docker compose port app 8000 | cut -d: -f2)"
+          curl --retry 10 --retry-delay 1 --retry-connrefused -fsS "http://127.0.0.1:${port}/api/health"
+          echo
+
+          # The host's Nginx is not ours to reload from CI (it serves other sites too).
+          if ! cmp -s deploy/nginx/collabpad.conf /etc/nginx/sites-available/collabpad.conf; then
+              echo "::warning::deploy/nginx/collabpad.conf differs from the server's copy. Install it by hand: docs/deploy.md, step 8."
+          fi
+          REMOTE
+
+      - name: Remove the SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

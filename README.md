@@ -104,6 +104,7 @@ web/src/    клиент: камера, куски мира, рисование,
 config/     YAML-настройки и флаги
 prompts/    промпт классификации
 scripts/    loadtest.py, vlm_accuracy.py — нагрузочный тест и точность нейросети
-deploy/     Nginx хоста, бэкап, update.sh (Docker Compose); установка — docs/deploy.md
+deploy/     Nginx хоста, бэкап (Docker Compose); установка — docs/deploy.md
+.github/    выкладка: push в ветку deploy → проверки → обновление сервера по SSH
 tests/      pytest
 ```

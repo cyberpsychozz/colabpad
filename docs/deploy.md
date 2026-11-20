@@ -4,7 +4,8 @@ For the human. The agent never runs any of this against the server. Every comman
 
 The layout:
 
-- The code is a git clone in `/opt/collabpad`, and its settings are in `/opt/collabpad/.env` (mode 600).
+- The code is a git clone in `/opt/collabpad`, and its settings are in `/opt/collabpad/.env` (mode 600). Both belong to the user `gh_deploy_collabpad`.
+- Updates are a push to the `deploy` branch: GitHub Actions runs the checks, then SSHes in as `gh_deploy_collabpad` and rebuilds (step 11).
 - Docker Compose (project `collabpad`) runs:
   - `app`: the server, the built frontend and the world simulation, in one container with one Uvicorn worker. It is published on **`127.0.0.1:1744`** only.
   - `vlm-egress` (optional, profile `egress`): Tailscale in userspace mode. It serves an HTTP proxy that only the VLM calls use, leaving through a Tailscale exit node.
@@ -240,28 +241,114 @@ vlm: {enabled: true}          # false: always the manual type grid
 sleep_catchup: true
 ```
 
-Change flags in the repository, then update (step 11). Don't edit files in `/opt/collabpad`
-on the server: a local edit makes the next `git pull --ff-only` fail. Turn `ads.enabled` on
-only after the ad block ids are set and approved.
+Change flags in the repository, then deploy (step 11). Don't edit files in `/opt/collabpad`
+on the server: the deploy refuses to run while the checkout has local edits. Turn
+`ads.enabled` on only after the ad block ids are set and approved.
 
-## 11. Updates
+## 11. Updates: push to `deploy`
+
+Every update goes through GitHub Actions ([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)).
+Push the commit you want live to the `deploy` branch:
 
 ```bash
-sudo /opt/collabpad/deploy/update.sh
+git push origin main:deploy
 ```
 
-It runs `git pull --ff-only`, rebuilds, recreates the containers and checks health. Then it
-deletes old untagged images and Docker's build cache, and prints how much disk is free. Each
-build leaves a few hundred MB behind, and a full disk stops SQLite from opening the
-database (`disk I/O error` at startup). With less than 3 GiB free it also cleans up before the
-build. With less than 1 GiB free even after that, it stops without changing anything. It never
-touches volumes, where the database, the sprites and the backups live: don't run
-`docker system prune --volumes` or `docker volume prune` on this host.
+The workflow runs `pytest` and the client tests and build. Only if they pass does it SSH into
+the server as `gh_deploy_collabpad` and, in `/opt/collabpad`:
+
+1. refuses to go on if the checkout has local edits, then fetches `deploy` and checks out
+   exactly the commit that was tested (a force-push to `deploy` works too);
+2. checks the disk: with less than 3 GiB free it first deletes old images and the build cache;
+   with less than 1 GiB free even after that, it stops and the running app is not touched;
+3. backs up the database (`deploy/backup.py`) if the app is running;
+4. `docker compose up --build -d --wait`, then checks `/api/health`;
+5. deletes old untagged images and Docker's build cache however the deploy ended (each build
+   leaves a few hundred MB, and a full disk stops SQLite: `disk I/O error` at startup), and
+   prints how much disk is free. It never touches volumes, where the database, the sprites and
+   the backups live: don't run `docker system prune --volumes` or `docker volume prune` on
+   this host;
+6. warns if `deploy/nginx/collabpad.conf` differs from the installed copy. CI never touches
+   Nginx; install it by hand (below).
+
+One deploy runs at a time; pushes made meanwhile wait, and only the newest of them runs. To
+re-deploy the same commit: GitHub → Actions → Deploy → Run workflow, branch `deploy`.
 
 A restart drops every socket. Clients reconnect on their own, and the world resumes from the
 last snapshot (at most 5 s lost). Never run a second replica of `app`.
 
-If an update changes `deploy/nginx/collabpad.conf`, copy it again and reload Nginx:
+### One-time setup
+
+**On the server:** a user for the deploys, in the `docker` group, owning the checkout. Being
+in the `docker` group is as good as root on this host, so guard its key like a root key.
+
+```bash
+sudo useradd --create-home --shell /bin/bash gh_deploy_collabpad && sudo usermod -aG docker gh_deploy_collabpad
+```
+
+```bash
+sudo chown -R gh_deploy_collabpad:gh_deploy_collabpad /opt/collabpad && sudo chmod 600 /opt/collabpad/.env
+```
+
+If the checkout was cloned from another remote or is on another branch, that's fine: the
+deploy fetches `deploy` from `origin` and checks out a commit. `origin` must be
+`https://github.com/cyberpsychozz/colabpad.git` (the repository is public, so no key is
+needed to fetch).
+
+**On your own machine:** a key pair just for this (no passphrase, CI has to use it):
+
+```bash
+ssh-keygen -t ed25519 -N '' -C gh_deploy_collabpad -f ./gh_deploy_collabpad
+```
+
+Put the public key on the server. `restrict` turns off port, agent and X11 forwarding and the
+PTY for this key; commands still run. Replace `<contents of gh_deploy_collabpad.pub>`:
+
+```bash
+sudo install -d -m 700 -o gh_deploy_collabpad -g gh_deploy_collabpad /home/gh_deploy_collabpad/.ssh && echo 'restrict <contents of gh_deploy_collabpad.pub>' | sudo tee /home/gh_deploy_collabpad/.ssh/authorized_keys && sudo chown gh_deploy_collabpad:gh_deploy_collabpad /home/gh_deploy_collabpad/.ssh/authorized_keys && sudo chmod 600 /home/gh_deploy_collabpad/.ssh/authorized_keys
+```
+
+If `sshd_config` has an `AllowUsers` or `AllowGroups` line, add the user there and reload
+sshd. Check from your machine (should print `gh_deploy_collabpad` and the docker version):
+
+```bash
+ssh -i ./gh_deploy_collabpad gh_deploy_collabpad@<server> 'whoami && docker version -f {{.Server.Version}}'
+```
+
+The server's host key, for CI to pin (add `-p <port>` if SSH isn't on 22):
+
+```bash
+ssh-keyscan -t ed25519 <server>
+```
+
+Compare its fingerprint with the one on the server before trusting it:
+
+```bash
+sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+**On GitHub:** Settings → Environments → New environment `production`. Under "Deployment
+branches and tags" choose "Selected branches" and add `deploy`, so no other branch can read
+the key. Optionally add yourself as a required reviewer to approve each deploy. Then add, in
+that environment:
+
+| Kind | Name | Value |
+|---|---|---|
+| Secret | `DEPLOY_HOST` | the server's address |
+| Secret | `DEPLOY_SSH_KEY` | the whole private key file `gh_deploy_collabpad` |
+| Secret | `DEPLOY_KNOWN_HOSTS` | the `ssh-keyscan` output line |
+| Variable (optional) | `DEPLOY_PORT` | SSH port, if not 22 |
+
+Delete the private key from your machine once it is in GitHub. Optionally, protect the
+`deploy` branch (Settings → Rules) so only you can push to it.
+
+The old `deploy/update.sh` is gone; nobody updates the server by hand any more. The root cron
+backup (step 7) keeps working as it is.
+
+### Nginx
+
+If an update changes `deploy/nginx/collabpad.conf` (the deploy log warns), copy it again and
+reload Nginx:
 
 ```bash
 sudo cp /opt/collabpad/deploy/nginx/collabpad.conf /etc/nginx/sites-available/collabpad.conf && sudo nginx -t && sudo systemctl reload nginx
