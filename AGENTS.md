@@ -302,7 +302,8 @@ CREATE TABLE entity (id TEXT PRIMARY KEY, canvas_id TEXT, sprite_id TEXT, archet
 CREATE INDEX entity_alive ON entity (canvas_id) WHERE died_at IS NULL;
 CREATE TABLE world_event (id INTEGER PRIMARY KEY AUTOINCREMENT, canvas_id TEXT, tick INTEGER, at INTEGER,
   type TEXT, actors TEXT, payload TEXT);
-CREATE TABLE magic_token (token_hash TEXT PRIMARY KEY, email TEXT, locale TEXT, expires_at INTEGER, used_at INTEGER);
+CREATE TABLE login_code (session_id TEXT PRIMARY KEY, email TEXT NOT NULL, locale TEXT, code_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0);  -- one pending code per session
 CREATE TABLE metric (key TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0);
 ```
 
@@ -317,7 +318,7 @@ CREATE TABLE metric (key TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0);
 - `alive_job` and raw VLM output: 30 days
 - cutout and sprite sheet files: 7 days after death (the fossil strokes stay)
 - `world_event`: 90 days
-- magic tokens: deleted on use or expiry
+- sign-in codes: deleted on use or expiry
 - payments: kept forever
 
 Sprite files live in the data volume (`DATA_DIR/sprites/`) and are served by FastAPI with long cache headers.
@@ -404,8 +405,8 @@ Sprite files live in the data volume (`DATA_DIR/sprites/`) and are served by Fas
 |---|---|---|
 | GET `/api/me` | anyone | → `{user?, plan, ads, locale, quota:{used,limit}}` |
 | PUT `/api/me/locale` | anyone | `{locale:"ru"\|"en"}` → 204 |
-| POST `/api/auth/magic-link` | anyone | `{email}` → 204 (≤ 3 mails / 10 min / address; mail in the session locale) |
-| GET `/api/auth/callback?token=` | anyone | → 302 + Set-Cookie (httpOnly, SameSite=Lax); links the anonymous session to the user |
+| POST `/api/auth/code` | anyone | `{email}` → 204 (≤ 3 mails / 10 min / address; mail in the session locale) |
+| POST `/api/auth/verify` | the session that asked for the code | `{code}` → 204 + Set-Cookie (httpOnly, SameSite=Lax); links the anonymous session to the user |
 | POST `/api/auth/logout` | logged in | → 204 |
 | POST `/api/canvases` | Plus | `{title}` → 201 `{id, kind:"private"}` (≤ 5 worlds) |
 | GET `/api/canvases/{id}` | role ≥ viewer | → `{id, kind, title, role, frozen, bounds, spawn:{x,y}, limits, palette}` |
@@ -451,7 +452,7 @@ Draggable types are `food`, `explosive`, `remote` and `doodle`. Check roles **se
 - **The client renders its own localized text from `code` + `details`.** `message` is only a fallback.
 
 Codes:
-- VALIDATION_FAILED 400, UNAUTHENTICATED 401, FORBIDDEN_ROLE 403, PAYMENT_REQUIRED 402
+- VALIDATION_FAILED 400, CODE_INVALID 400, CODE_EXPIRED 410, UNAUTHENTICATED 401, FORBIDDEN_ROLE 403, PAYMENT_REQUIRED 402
 - CANVAS_FROZEN 423, NOT_FOUND 404, QUOTA_EXCEEDED 429, RATE_LIMITED 429
 - SELECTION_EMPTY 422, SELECTION_TOO_LARGE 422, SELECTION_MULTIPLE 422, SELECTION_BUSY 409, STROKES_ALREADY_ALIVE 409
 - ENTITY_LIMIT 409, UNSAFE_CONTENT 422, VLM_TIMEOUT / VLM_UNAVAILABLE (→ manual type grid, not shown as an error)
@@ -480,7 +481,8 @@ Socket reconnect uses the kept backoff (1, 2, 4 s …) and resyncs each subscrib
   4. A daily 03:00 MSK renewal task (asyncio background task) runs when `billing.recurring` is on. Failure → `past_due`.
   5. Prices are **always in rubles**, in either UI language. Receipts come from «Чеки от ЮKassa».
 - **Auth:**
-  - Magic link: 32-byte token (`secrets.token_urlsafe`) stored as SHA-256, 15 min TTL, single use.
+  - Sign-in by a 6-digit code sent by e-mail (`secrets.randbelow`), stored as SHA-256 of `session:code`, 15 min TTL, single use, 5 wrong guesses void it. A code works only in the browser session that asked for it; a new request replaces it.
+  - The letter is text + HTML: a greeting, the code, what to do with it, what to do if you didn't ask. A named sender, `Date` and `Message-ID` headers.
   - On login, link the anonymous session to the user; its strokes, entities and quota stay with it.
   - Store only e-mail + locale; show a privacy notice and consent at login, in both languages.
   - The legacy "no personal data" rule is retired; e-mail is now the only personal data stored.
@@ -586,7 +588,7 @@ Track **A** = world + ALIVE; track **B** = accounts, money, ads, i18n. If you're
 | T16 | ALIVE UI: button, goo, chooser, grid, errors | A | 8 | T3, T9 | every error code has RU + EN text |
 | T17 | Control lease + WASD/joystick overlay | B | 5 | T12, T15 | lease, extend, release on disconnect |
 | T18 | VFX: blast, eat, birth, fire, rain | B | 6 | T15 | — |
-| T19 | Magic-link auth + session linking + `/api/me` | B | 8 | T2 | token single-use/expiry |
+| T19 | E-mail code auth + session linking + `/api/me` | B | 8 | T2 | code single-use/expiry/attempts |
 | T20 | Private worlds, roles, middleware, share dialog | B | 12 | T19 | role matrix tests (REST + socket) |
 | T21 | ЮKassa test mode: checkout, webhook, renewal, freeze, `/plans` | B | 12 | T19 | duplicate webhook idempotent; freeze/unfreeze |
 | T22 | РСЯ slots + adblock detector + gate | B | 5 | T1 | empty fill ≠ blocked; mobile works |
@@ -620,7 +622,7 @@ Track **A** = world + ALIVE; track **B** = accounts, money, ads, i18n. If you're
 7. A cloud rains: the puddle grows and a fire goes out.
 8. An ambiguous drawing → chooser. With the VLM down (fake adapter) → manual grid, and it still comes alive.
 9. The 11th ALIVE for an anonymous user that day → `QUOTA_EXCEEDED` with the sign-in hint, in the right language and with correct Russian plurals.
-10. Magic-link login → buy Plus in ЮKassa test mode (rubles in both languages) → ads disappear → create a private world → share it with role Player to a free account. The guest can pet and drive but not draw or ALIVE, and still sees ads.
+10. Sign in with an e-mailed code → buy Plus in ЮKassa test mode (rubles in both languages) → ads disappear → create a private world → share it with role Player to a free account. The guest can pet and drive but not draw or ALIVE, and still sees ads.
 11. Expire the host's subscription (test clock) → the world freezes for everyone → pay → it unfreezes.
 12. With `ads.enabled` and an adblocker on as a free user → the gate; turn it off → retry → the canvas opens. An empty ad fill doesn't trigger the gate.
 13. Killing the sim process mid-game → it restarts and the world resumes (≤ 5 s lost).

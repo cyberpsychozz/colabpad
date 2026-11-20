@@ -174,12 +174,18 @@ CREATE TABLE IF NOT EXISTS world_event (
 -- Retention and "my events" both read by time.
 CREATE INDEX IF NOT EXISTS world_event_at ON world_event (at);
 
-CREATE TABLE IF NOT EXISTS magic_token (
-    token_hash TEXT PRIMARY KEY,
-    email TEXT,
+-- An unused table from an earlier sign-in; dropped so existing databases match this schema.
+DROP TABLE IF EXISTS magic_token;
+
+-- One pending sign-in code per browser session: only the session that asked for it can use it.
+-- A newer request from the same session replaces the code and resets the attempts.
+CREATE TABLE IF NOT EXISTS login_code (
+    session_id TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
     locale TEXT,
-    expires_at INTEGER,
-    used_at INTEGER
+    code_hash TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS metric (

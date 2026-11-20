@@ -56,8 +56,8 @@ def test_retention_keeps_strokes_and_drops_old_jobs_events_tokens_and_dead_sprit
         " ('world',1,?,'old','[]','{}'), ('world',2,?,'new','[]','{}')",
         (now - 91 * DAY_MS, now - 89 * DAY_MS),
     )
-    repo.store_magic_token("expired", "a@example.test", "ru", now - 1)
-    repo.store_magic_token("fresh", "b@example.test", "ru", now + 60_000)
+    repo.store_login_code("expired", "a@example.test", "ru", "123456", now - 1)
+    repo.store_login_code("fresh", "b@example.test", "ru", "654321", now + 60_000)
 
     def retention(days_later: float) -> Retention:
         return Retention(lambda: repo, sprites, app.state.config.limits["retention_days"],
@@ -65,8 +65,8 @@ def test_retention_keeps_strokes_and_drops_old_jobs_events_tokens_and_dead_sprit
 
     counts = on_loop(client, retention(0).run_once())
     assert counts["world_event"] == 1 and counts["sprites"] == 0 and counts["alive_job"] == 0
-    tokens = {row[0] for row in repo.db.execute("SELECT token_hash FROM magic_token")}
-    assert tokens == {"fresh"}
+    codes = {row[0] for row in repo.db.execute("SELECT session_id FROM login_code")}
+    assert codes == {"fresh"}
 
     # The ALIVE job goes after 30 days; a living entity keeps its sprite however old.
     counts = on_loop(client, retention(40).run_once())

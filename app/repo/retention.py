@@ -10,7 +10,7 @@ class RetentionRepo:
     db: sqlite3.Connection
 
     def purge_old_rows(self, now: int, days: dict[str, int]) -> dict[str, int]:
-        """Drop ALIVE jobs (with their raw VLM output), old world events and dead magic links."""
+        """Drop ALIVE jobs (with their raw VLM output), old world events and expired sign-in codes."""
         counts = {}
         counts["alive_job"] = self.db.execute(
             "DELETE FROM alive_job WHERE created_at < ?",
@@ -19,8 +19,8 @@ class RetentionRepo:
         counts["world_event"] = self.db.execute(
             "DELETE FROM world_event WHERE at < ?", (now - days["world_event"] * DAY_MS,)
         ).rowcount
-        counts["magic_token"] = self.db.execute(
-            "DELETE FROM magic_token WHERE expires_at <= ? OR used_at IS NOT NULL", (now,)
+        counts["login_code"] = self.db.execute(
+            "DELETE FROM login_code WHERE expires_at <= ?", (now,)
         ).rowcount
         return counts
 

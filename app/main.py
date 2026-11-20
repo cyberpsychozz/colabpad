@@ -316,7 +316,7 @@ def create_app(
         return Response(status_code=204)
 
     application.state.mailer = mailer or build_mailer(settings)
-    application.include_router(auth_router(config.limits["auth"]["magic_link_rate"]))
+    application.include_router(auth_router(config.limits["auth"]["code_rate"]))
     application.include_router(access_router())
     application.include_router(billing_router())
     application.include_router(create_router())

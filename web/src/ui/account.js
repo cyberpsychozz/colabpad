@@ -1,5 +1,5 @@
-// The account button and its dialog: sign in by e-mail link, plan, my worlds, sign out.
-import { ApiError, getWorlds, postLogout, postMagicLink, postWorld } from '../api.js';
+// The account button and its dialog: sign in with an e-mailed code, plan, my worlds, sign out.
+import { ApiError, getWorlds, postLoginCode, postLogout, postVerifyCode, postWorld } from '../api.js';
 import { getLocale, t } from '../i18n/i18n.js';
 import { currentMe } from '../me.js';
 import { element, localize, modal } from './dom.js';
@@ -23,8 +23,10 @@ export function openAccount() {
   localize(dialog);
 }
 
-function signIn(body) {
-  const email = element('input', { type: 'email', name: 'email', required: true, autocomplete: 'email', maxlength: 254, id: 'account-email' });
+const CODE_DIGITS = 6;
+
+function signIn(body, address = '') {
+  const email = element('input', { type: 'email', name: 'email', required: true, autocomplete: 'email', maxlength: 254, id: 'account-email', value: address });
   const consent = element('input', { type: 'checkbox', required: true, id: 'account-consent' });
   const problem = element('p', { class: 'form-error', role: 'alert' });
   const send = element('button', { class: 'button primary', type: 'submit', 'data-i18n': 'account.send' });
@@ -32,12 +34,12 @@ function signIn(body) {
     event.preventDefault();
     send.disabled = true;
     problem.textContent = '';
+    const address = email.value.trim();
     try {
-      await postMagicLink(email.value.trim(), location.pathname);
-      body.replaceChildren(element('h2', { 'data-i18n': 'account.sentTitle' }), element('p', {}, t('account.sent', { email: email.value.trim() })));
-      localize(body);
+      await postLoginCode(address);
+      enterCode(body, address);
     } catch (error) {
-      problem.textContent = error instanceof ApiError && error.code === 'VALIDATION_FAILED' ? t('account.badEmail') : errorText(error.code);
+      problem.textContent = error instanceof ApiError && error.code === 'VALIDATION_FAILED' ? t('account.badEmail') : errorText(error.code, error.details);
       send.disabled = false;
     }
   } },
@@ -49,6 +51,60 @@ function signIn(body) {
   problem,
   element('div', { class: 'dialog-actions' }, send));
   body.replaceChildren(form);
+  localize(body);
+}
+
+// Step two: the six digits from the letter. The code only works in this browser.
+function enterCode(body, address) {
+  const code = element('input', {
+    type: 'text', name: 'code', id: 'account-code', required: true, inputmode: 'numeric',
+    autocomplete: 'one-time-code', maxlength: 12, class: 'code-input', spellcheck: 'false',
+  });
+  const problem = element('p', { class: 'form-error', role: 'alert' });
+  const note = element('p', { class: 'small-note', 'data-i18n': 'account.noMail' });
+  const verify = element('button', { class: 'button primary', type: 'submit', 'data-i18n': 'account.verify' });
+  const digits = () => code.value.replace(/\D/g, '');
+  let busy = false;
+  const submit = async () => {
+    if (busy) return;
+    problem.textContent = '';
+    if (digits().length !== CODE_DIGITS) { problem.textContent = t('account.badCode'); return; }
+    busy = verify.disabled = true;
+    try {
+      await postVerifyCode(digits());
+      location.reload();
+    } catch (error) {
+      problem.textContent = errorText(error.code, error.details);
+      code.select();
+      busy = verify.disabled = false;
+    }
+  };
+  // Pasting or autofilling all six digits signs in without another click.
+  code.addEventListener('input', () => { if (digits().length === CODE_DIGITS) submit(); });
+  const resend = element('button', { class: 'button quiet', type: 'button', 'data-i18n': 'account.resend', onclick: async () => {
+    resend.disabled = true;
+    problem.textContent = '';
+    try {
+      await postLoginCode(address);
+      note.textContent = t('account.resent');
+      code.value = '';
+      code.focus();
+    } catch (error) {
+      problem.textContent = errorText(error.code, error.details);
+    }
+    resend.disabled = false;
+  } });
+  const other = element('button', { class: 'button quiet', type: 'button', 'data-i18n': 'account.otherEmail', onclick: () => signIn(body, address) });
+  const form = element('form', { onsubmit: event => { event.preventDefault(); submit(); } },
+    element('h2', { 'data-i18n': 'account.codeTitle' }),
+    element('p', {}, t('account.codeSent', { email: address })),
+    element('label', { for: 'account-code', 'data-i18n': 'account.code' }), code,
+    problem,
+    note,
+    element('div', { class: 'dialog-actions' }, other, resend, verify));
+  body.replaceChildren(form);
+  localize(body);
+  code.focus();
 }
 
 function signedIn(body, me) {

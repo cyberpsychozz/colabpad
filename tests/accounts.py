@@ -2,7 +2,6 @@
 
 import re
 from typing import Any
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -15,9 +14,16 @@ DAY = 86_400
 class FakeMailbox:
     def __init__(self) -> None:
         self.messages: list[tuple[str, str, str]] = []
+        self.html: list[str | None] = []
 
-    async def send(self, email: str, subject: str, body: str) -> None:
+    async def send(self, email: str, subject: str, body: str, html: str | None = None) -> None:
         self.messages.append((email, subject, body))
+        self.html.append(html)
+
+
+def mailed_code(application: FastAPI) -> str:
+    """The six digits in the latest letter."""
+    return re.search(r"\b(\d{6})\b", application.state.mailer.messages[-1][2])[1]
 
 
 def browser(application: FastAPI) -> TestClient:
@@ -28,9 +34,8 @@ def browser(application: FastAPI) -> TestClient:
 def sign_in(application: FastAPI, client: TestClient, email: str) -> dict[str, Any]:
     if not isinstance(application.state.mailer, FakeMailbox):
         application.state.mailer = FakeMailbox()
-    assert client.post("/api/auth/magic-link", json={"email": email}).status_code == 204
-    url = urlsplit(re.search(r"https?://\S+", application.state.mailer.messages[-1][2])[0])
-    assert client.get(f"{url.path}?{url.query}", follow_redirects=False).status_code == 302
+    assert client.post("/api/auth/code", json={"email": email}).status_code == 204
+    assert client.post("/api/auth/verify", json={"code": mailed_code(application)}).status_code == 204
     return client.get("/api/me").json()["user"]
 
 

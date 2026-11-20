@@ -13,6 +13,7 @@ from app.i18n import translate
 # NOT_JOINED is socket-only: it tells the client to resubscribe before retrying.
 STATUS = {
     "VALIDATION_FAILED": 400,
+    "CODE_INVALID": 400,
     "UNAUTHENTICATED": 401,
     "PAYMENT_REQUIRED": 402,
     "PAYMENT_FAILED": 402,
@@ -25,6 +26,7 @@ STATUS = {
     "NOT_JOINED": 409,
     "WORLD_LIMIT": 409,
     "CHOICE_EXPIRED": 410,
+    "CODE_EXPIRED": 410,
     "PAYLOAD_TOO_LARGE": 413,
     "SELECTION_EMPTY": 422,
     "SELECTION_TOO_LARGE": 422,

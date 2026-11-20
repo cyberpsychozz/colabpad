@@ -1,1 +1,1 @@
-"""Magic-link auth and sessions."""
+"""Sign-in by e-mailed code, and sessions."""

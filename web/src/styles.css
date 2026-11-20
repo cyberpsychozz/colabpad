@@ -1356,6 +1356,8 @@ footer {
 .dialog select { border:1px solid var(--line); border-radius:8px; padding:10px; background:var(--paper); font:inherit; font-size:13px }
 .dialog label.check { display:flex; gap:10px; align-items:flex-start; font-size:13px; line-height:1.5; margin-bottom:12px }
 .dialog label.check input { width:auto; margin:3px 0 0 }
+.dialog .code-input { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:24px; letter-spacing:6px; text-align:center }
+.account .dialog-actions { flex-wrap:wrap }
 .form-error { color:#b3402f; font-size:13px; min-height:1em; margin:8px 0 0 }
 .inline-form { display:flex; gap:8px; align-items:center; margin-bottom:16px }
 .inline-form input:not([type=range]) { margin-bottom:0; flex:1; min-width:0 }
