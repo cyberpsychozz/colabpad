@@ -1,142 +1,60 @@
-# Deploying Living Canvas to collabpad.ru
+# Deploying CollabPad (Docker Compose + the host's Nginx)
 
-For the human. Nothing here has been run against the server by the agent: every command
-below is yours to run. Work through it top to bottom; each step says how to check it.
+For the human. The agent never runs any of this against the server. Every command is yours.
 
-The production layout is the one legacy used and is kept: Ubuntu VPS, system Nginx with
-the certificates already issued, the app as the systemd service `collabpad` running from
-`/opt/collabpad` as user `collabpad`, settings in `/etc/collabpad/collabpad.env`, data in
-`/var/lib/collabpad`. A Docker variant is at the end.
+The layout:
 
-What is new compared with legacy:
+- The code is a git clone in `/opt/collabpad`, and its settings are in `/opt/collabpad/.env` (mode 600).
+- Docker Compose (project `collabpad`) runs:
+  - `app`: the server, the built frontend and the world simulation, in one container with one Uvicorn worker. It is published on **`127.0.0.1:1744`** only.
+  - `vlm-egress` (optional, profile `egress`): Tailscale in userspace mode. It serves an HTTP proxy that only the VLM calls use, leaving through a Tailscale exit node.
+- The database (`collabpad.db`), the sprites and the backups are in the Docker volume `collabpad_data`.
+- The **host's** Nginx terminates HTTPS (certbot, webroot) and proxies to `127.0.0.1:1744`. The VPS hosts other sites too: never remove or edit their Nginx files, and don't touch the `default` site.
+- The daily backup is a root cron line that runs `deploy/backup.py` inside the container.
 
-- **The database is replaced, not migrated.** The new app refuses to start on the old
-  `collabpad.db` ("created by another version of CollabPad"). Step 3 moves it aside; it is
-  kept, never deleted.
-- `DATA_DIR/sprites/` holds the sprite sheets of drawings brought to life. It is backed up
-  together with the database (`deploy/backup.py` now mirrors it to `backups/sprites/`).
-- The app starts a second process (the world simulation). It lives and dies with the
-  service; nothing to configure. The unit file changed (`KillMode=mixed`) so that stopping
-  the service lets the simulation save the world first.
-- skia-python needs three system libraries: `libfontconfig1 libgl1 libegl1`.
-- New settings: `SMTP_*`, `PUBLIC_URL`, `VLM_API_KEY`, `YOOKASSA_*`, `ADS_BLOCK_*`.
-- A daily retention pass (old ALIVE jobs, world events, sprite files of long-dead
-  entities) runs inside the app. Strokes and payments are never removed.
-
-Sizing: the load test (`docs/agent/loadtest.md`) ran 2 000 living entities and 50 clients in
-about 140 MiB of memory, with the server using about half a core and the simulation a sixth
-of one. Outgoing traffic is roughly 50–90 KiB/s per active player at that density.
+The host needs only Docker (Engine + the Compose plugin), Nginx, certbot and git. No Python
+or Node: the image builds the frontend and runs the client tests during `docker compose build`.
 
 ---
 
-## 0. Before the server: merge the branch
-
-On your own machine, once you have reviewed `living-canvas`. `main` has no commits that
-`living-canvas` lacks, so this is a fast-forward:
-
-```bash
-git checkout main
-```
-
-```bash
-git merge --ff-only living-canvas
-```
-
-```bash
-git push origin main
-```
-
-The tag `legacy-v1` (the old app) is already on GitHub; step 9 uses it to roll back.
-
 ## 1. Accounts and keys to have ready
 
-| What | Where it goes | Without it |
+| What | `.env` | Without it |
 |---|---|---|
-| SMTP mailbox for sign-in links (implicit TLS, port 465) | `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASSWORD` | sign-in links are written to the service log instead of being mailed. **Do not run production like that**: anyone reading the log could sign in as anyone. |
-| OpenRouter key | `VLM_API_KEY` | ALIVE still works: the author picks the type from a grid. Daily spend cap: `daily_budget_usd` in `config/vlm.yaml` (5 USD). |
-| YooKassa **test** shop: shop id and a secret key that starts with `test_` | `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY` | checkout answers "Payment failed". A key not starting with `test_` is refused on purpose: the brief allows test mode only. |
-| Yandex Advertising Network (RSYa) block ids `R-A-…` | `ADS_BLOCK_SIDE` (vertical, 160×600 / 300×600), `ADS_BLOCK_BOTTOM` (adaptive, narrow screens) | no ads. Ads also need `ads.enabled: true` in `config/flags.yaml` (step 7). |
+| SMTP mailbox for sign-in links (implicit TLS, port 465) | `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASSWORD` | sign-in links are written to the container log instead of being mailed. **Don't run production like that**: anyone who can read the log can sign in as anyone. |
+| OpenRouter key | `VLM_API_KEY` | ALIVE still works: the author picks the type from a grid. Daily spend cap: `daily_budget_usd` in `config/vlm.yaml`. |
+| YooKassa **test** shop: shop id and a secret key that starts with `test_` | `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY` | checkout answers "Payment failed". A key not starting with `test_` is refused on purpose. |
+| Yandex Advertising Network block ids `R-A-…` | `ADS_BLOCK_SIDE`, `ADS_BLOCK_BOTTOM` | no ads. Ads also need `ads.enabled: true` in `config/flags.yaml`. |
+| Tailscale (optional): an exit node, plus a **reusable, tagged** auth key whose tag may use exit nodes (`autogroup:internet`) | `TS_AUTHKEY`, `TS_EXIT_NODE` | the VLM is called directly from the server's IP |
 
-## 2. Log in and install the new system packages
+## 2. Install the host packages
 
-```bash
-ssh <you>@<server>
-```
-
-```bash
-sudo apt update && sudo apt install -y libfontconfig1 libgl1 libegl1
-```
-
-Python 3.12 and Node.js (20.19 or newer) are already there from legacy. Check:
+Docker (skip if it's already there):
 
 ```bash
-python3.12 --version && node --version
-```
-
-## 3. Stop the old app and put its data aside
-
-Take one last backup of the legacy database, then move the database and its backups into
-`/var/lib/collabpad/legacy/`, where nothing will touch them.
-
-```bash
-sudo systemctl stop collabpad
+curl -fsSL https://get.docker.com | sudo sh
 ```
 
 ```bash
-sudo -u collabpad /opt/collabpad/.venv/bin/python /opt/collabpad/deploy/backup.py --directory /var/lib/collabpad/backups
+sudo apt install -y nginx certbot git
 ```
+
+## 3. Get the code
 
 ```bash
-sudo -u collabpad mkdir -p /var/lib/collabpad/legacy
+sudo git clone https://github.com/cyberpsychozz/colabpad.git /opt/collabpad
 ```
+
+## 4. Settings
 
 ```bash
-sudo bash -c 'mv /var/lib/collabpad/collabpad.db* /var/lib/collabpad/legacy/ && mv /var/lib/collabpad/backups/collabpad-*.db /var/lib/collabpad/legacy/'
+cd /opt/collabpad && sudo install -m 600 .env.example .env && sudo nano .env
 ```
 
-Check: `ls /var/lib/collabpad` shows `backups` (empty) and `legacy`, and no `collabpad.db`.
-
-```bash
-ls -la /var/lib/collabpad /var/lib/collabpad/legacy
-```
-
-## 4. Update the code
-
-```bash
-cd /opt/collabpad && sudo -u collabpad git fetch origin && sudo -u collabpad git checkout main && sudo -u collabpad git pull --ff-only
-```
-
-```bash
-sudo -u collabpad .venv/bin/pip install -r requirements.txt
-```
-
-```bash
-cd /opt/collabpad/web && sudo -u collabpad npm ci && sudo -u collabpad npm test && sudo -u collabpad npm run build
-```
-
-Check that skia-python loads with the new libraries:
-
-```bash
-sudo -u collabpad /opt/collabpad/.venv/bin/python -c "import skia, numpy, PIL; print('ok')"
-```
-
-## 5. Settings
-
-Add the new lines to the existing env file. Compare it with the example first:
-
-```bash
-sudo diff /etc/collabpad/collabpad.env /opt/collabpad/deploy/collabpad.env.example
-```
-
-```bash
-sudo nano /etc/collabpad/collabpad.env
-```
-
-It must contain at least (values from step 1):
+Set at least:
 
 ```
-PORT=8000
-DATA_DIR=/var/lib/collabpad
+COLLABPAD_PORT=1744
 PUBLIC_URL=https://collabpad.ru
 CORS_ORIGINS=https://collabpad.ru
 SMTP_HOST=...
@@ -147,266 +65,263 @@ SMTP_PASSWORD=...
 VLM_API_KEY=...
 YOOKASSA_SHOP_ID=...
 YOOKASSA_SECRET_KEY=test_...
-ADS_BLOCK_SIDE=
-ADS_BLOCK_BOTTOM=
 ```
 
-Remove `DB_PATH` if the old file sets one (empty means `DATA_DIR/collabpad.db`). Keep the
-file private:
+With the Tailscale VLM proxy, also set the following. `COMPOSE_PROFILES` makes every plain
+`docker compose` command include the proxy container:
 
-```bash
-sudo chown root:collabpad /etc/collabpad/collabpad.env && sudo chmod 640 /etc/collabpad/collabpad.env
+```
+COMPOSE_PROFILES=egress
+VLM_PROXY_URL=http://vlm-egress:1055
+TS_AUTHKEY=tskey-auth-...
+TS_EXIT_NODE=<exit node Tailscale IP>
 ```
 
-## 5a. Optional: send only the VLM calls through Tailscale
-
-Use this if OpenRouter (or its models) refuses requests from the server's IP. A second,
-separate `tailscaled` runs in userspace mode and serves an HTTP proxy on `127.0.0.1:1055`
-that leaves through your exit node. **Only the VLM client uses it** (`VLM_PROXY_URL`).
-ЮKassa, mail, visitors and SSH stay on the server's own network, and the host's routes and
-DNS are not touched. If the exit node is down, only recognition fails, and ALIVE falls back
-to the manual type grid.
-
-Before you start, in the Tailscale admin console:
-- the exit node machine runs `tailscale set --advertise-exit-node` and is approved as an exit node;
-- create a **reusable, tagged** auth key (for example `tag:collabpad`) and allow that tag to use
-  exit nodes (`autogroup:internet`) in the access controls.
-
-Install Tailscale from its package repository (https://tailscale.com/download/linux). You
-don't need to run `tailscale up` for the system daemon; this setup uses its own instance.
+Check that port 1744 is free (no output means free). If it's taken, pick another port for
+`COLLABPAD_PORT` and use it in the Nginx `upstream` too (step 8):
 
 ```bash
-sudo cp /opt/collabpad/deploy/systemd/collabpad-egress.service /etc/systemd/system/
+sudo ss -ltnp 'sport = :1744'
 ```
 
+## 5. Build and start
+
 ```bash
-sudo systemctl daemon-reload && sudo systemctl enable --now collabpad-egress
+cd /opt/collabpad && sudo docker compose up --build -d --wait
 ```
 
-Log the instance in and choose the exit node (once; it is remembered in its state):
+The first build takes a few minutes. Check (should print `{"ok":true}`):
 
 ```bash
-sudo tailscale --socket=/run/collabpad-egress/tailscaled.sock up --auth-key=tskey-auth-... --hostname=collabpad-vlm-egress --exit-node=<exit node Tailscale IP>
-```
-
-Check that the proxy leaves through the exit node (should print the exit node's public IP)
-and that OpenRouter answers (should print `200`):
-
-```bash
-curl -s -x http://127.0.0.1:1055 https://ifconfig.me; echo
+curl -fsS http://127.0.0.1:1744/api/health; echo
 ```
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' -x http://127.0.0.1:1055 https://openrouter.ai/api/v1/models
+sudo docker compose ps
 ```
 
-Then add to `/etc/collabpad/collabpad.env` and restart the app:
+With the proxy, check that it leaves through the exit node (should print the exit node's
+public IP, not the server's):
+
+```bash
+sudo docker compose exec app python -c "import httpx; print(httpx.get('https://ifconfig.me', proxy='http://vlm-egress:1055').text)"
+```
+
+The app ignores `HTTPS_PROXY`/`ALL_PROXY` on purpose, so only the VLM ever uses the proxy,
+never YooKassa or mail. If the exit node is down, ALIVE falls back to the manual type grid.
+
+## 6. Trust Nginx's forwarded addresses
+
+To the app, the host's Nginx shows up as the Docker network's gateway address. The app has
+to trust `X-Forwarded-For` from that address. Otherwise the YooKassa webhook allowlist sees
+the gateway instead of YooKassa and rejects payment notifications. Get the gateway:
+
+```bash
+sudo docker network inspect collabpad_default --format '{{(index .IPAM.Config 0).Gateway}}'
+```
+
+Put it in `.env` (for example `COLLABPAD_FORWARDED_ALLOW_IPS=172.20.0.1`), then:
+
+```bash
+cd /opt/collabpad && sudo docker compose up -d --wait
+```
+
+## 7. Daily backup
+
+`deploy/backup.py` takes an online SQLite backup, checks it, keeps 14 daily copies and mirrors
+`sprites/` into `backups/sprites/`, all inside the volume. Open root's crontab:
+
+```bash
+sudo crontab -e
+```
+
+and add:
 
 ```
-VLM_PROXY_URL=http://127.0.0.1:1055
+0 3 * * * cd /opt/collabpad && docker compose exec -T app python deploy/backup.py
+```
+
+Run it once by hand to check it (prints the backup path and the sprite count):
+
+```bash
+cd /opt/collabpad && sudo docker compose exec -T app python deploy/backup.py
+```
+
+To copy the backups out of the volume (for example before taking them off the server):
+
+```bash
+cd /opt/collabpad && sudo docker compose cp app:/var/lib/collabpad/backups ./backups
+```
+
+## 8. DNS, Nginx and HTTPS
+
+Point the A records of `collabpad.ru`, `www.collabpad.ru`, `colabpad.ru` and
+`www.colabpad.ru` at the server, and remove AAAA records that point anywhere else. Wait until
+`dig +short collabpad.ru` (on your own machine) shows the server's IP.
+
+First an HTTP-only site, so certbot can prove the domains. Don't touch the other sites:
+
+```bash
+sudo mkdir -p /var/www/certbot
 ```
 
 ```bash
-sudo systemctl restart collabpad
-```
-
-Don't set `HTTPS_PROXY`/`ALL_PROXY` for the app instead: the app ignores them on purpose, so
-payments never go through the exit node.
-
-## 6. Install the new service file and start
-
-```bash
-sudo cp /opt/collabpad/deploy/systemd/collabpad.service /etc/systemd/system/collabpad.service
+sudo cp /opt/collabpad/deploy/nginx/bootstrap.conf /etc/nginx/sites-available/collabpad.conf && sudo ln -sf /etc/nginx/sites-available/collabpad.conf /etc/nginx/sites-enabled/collabpad.conf && sudo nginx -t && sudo systemctl reload nginx
 ```
 
 ```bash
-sudo cp /opt/collabpad/deploy/systemd/collabpad-backup.service /opt/collabpad/deploy/systemd/collabpad-backup.timer /etc/systemd/system/
+sudo certbot certonly --webroot -w /var/www/certbot --cert-name collabpad.ru -d collabpad.ru -d www.collabpad.ru -d colabpad.ru -d www.colabpad.ru
+```
+
+Then the full site (HTTPS, WebSocket upgrade on `/socket.io/`, the `colabpad.ru` typo
+redirect with `utm_medium=typo_colabpad`). Its `map` and `upstream` names start with
+`collabpad_`, so they can't clash with the other sites:
+
+```bash
+sudo cp /opt/collabpad/deploy/nginx/collabpad.conf /etc/nginx/sites-available/collabpad.conf && sudo nginx -t && sudo systemctl reload nginx
+```
+
+Reload Nginx after each renewal, and test renewal:
+
+```bash
+sudo install -m 755 /opt/collabpad/deploy/renew-hook.sh /etc/letsencrypt/renewal-hooks/deploy/collabpad && sudo certbot renew --dry-run --cert-name collabpad.ru
+```
+
+Check:
+
+```bash
+curl -fsS https://collabpad.ru/api/health; echo
 ```
 
 ```bash
-sudo systemctl daemon-reload && sudo systemctl start collabpad && sudo systemctl enable --now collabpad-backup.timer
+curl -sI http://colabpad.ru/ | grep -i location
 ```
 
-Check, in this order:
+The second should show `https://collabpad.ru/?utm_medium=typo_colabpad`.
 
-```bash
-curl -fsS https://collabpad.ru/api/health
-```
-
-should print `{"ok":true}`.
-
-```bash
-sudo journalctl -u collabpad --since "5 min ago" --no-pager
-```
-
-should show no errors. Within a minute after the first visitor opens the world it shows a
-line like `Simulation: 10 Hz, 0 entities (0 active), tick p50 … ms` (every minute after
-that). A line saying "running at 5 Hz" means the server is too slow for 10 ticks a second;
-tell the agent.
-
-```bash
-ls -la /var/lib/collabpad
-```
-
-should now show a fresh `collabpad.db` (plus `-wal`/`-shm`) and `sprites/` with three
-built-in sprites (`builtin-apple`, `builtin-fish`, `builtin-flame`).
-
-Nginx needs no change: `deploy/nginx/collabpad.conf` is byte for byte the legacy file
-(WebSocket upgrade on `/socket.io/`, the `colabpad.ru` typo redirect with `utm_medium`). To
-be sure the live copy matches, diff it against wherever you installed it, for example:
-
-```bash
-sudo diff /etc/nginx/sites-available/collabpad.conf /opt/collabpad/deploy/nginx/collabpad.conf
-```
-
-## 7. Flags
-
-`config/flags.yaml` is read at startup:
-
-```yaml
-ads: {enabled: false}         # true: RSYa banners and the ad-blocker gate for free plans
-billing: {recurring: false}   # true: the 03:00 MSK auto-renewal charges saved cards
-vlm: {enabled: true}          # false: always the manual type grid
-sleep_catchup: true
-```
-
-Change flags in the repository and deploy (`deploy/update.sh`), not by editing the file on
-the server: a local edit makes the next `git pull --ff-only` fail. After changing a flag:
-
-```bash
-sudo /opt/collabpad/deploy/update.sh
-```
-
-Turn `ads.enabled` on only after the RSYa block ids are set and the blocks are approved;
-with it on, free users with an ad blocker see the gate instead of the world.
-
-## 8. YooKassa test shop
+## 9. YooKassa test shop
 
 In the YooKassa dashboard of the **test** shop → Integration → HTTP notifications:
 
 - URL: `https://collabpad.ru/api/billing/webhook`
 - Events: `payment.succeeded`, `payment.canceled`
 
-The app accepts notifications only from YooKassa's published addresses
-(`webhook_ips` in `config/billing.yaml`; check them against YooKassa's docs once). Nginx
-passes the real address in `X-Forwarded-For`, and Uvicorn runs with `--proxy-headers
---forwarded-allow-ips 127.0.0.1`, so the allowlist sees it. The app never trusts the
-notification body: it fetches the payment from YooKassa by id first.
+The app accepts notifications only from YooKassa's addresses (`webhook_ips` in
+`config/billing.yaml`), which is why step 6 matters. It never trusts the notification body:
+it fetches the payment from YooKassa by id first.
 
-Check: sign in on the site, open `/plans`, pay with one of YooKassa's test cards for a
-successful payment (their "Testing" docs list them; `5555 5555 5555 4477`, any future date,
-any CVC, was one at the time of writing). You come back to `/billing/return`, the plan shows as active,
-and ads (if enabled) disappear.
+Check: sign in, open `/plans`, pay with a YooKassa test card for a successful payment (their
+"Testing" docs list them). You come back to `/billing/return`, and the plan shows as active.
 
-## 9. Backups and restore
+## 10. Flags
 
-The daily timer (03:00) now writes `backups/collabpad-YYYY-MM-DD.db` (14 kept) **and**
-mirrors `sprites/` into `backups/sprites/`. Run it once by hand:
+`config/flags.yaml` is built into the image:
 
-```bash
-sudo systemctl start collabpad-backup && sudo journalctl -u collabpad-backup --since "2 min ago" --no-pager
+```yaml
+ads: {enabled: false}         # true: ad banners and the ad-blocker gate for free plans
+billing: {recurring: false}   # true: the 03:00 MSK auto-renewal charges saved cards
+vlm: {enabled: true}          # false: always the manual type grid
+sleep_catchup: true
 ```
 
-It prints the backup path and `sprites: N copied, 0 removed`. Copy `/var/lib/collabpad/backups`
-off the server as before.
+Change flags in the repository, then update (step 11). Don't edit files in `/opt/collabpad`
+on the server: a local edit makes the next `git pull --ff-only` fail. Turn `ads.enabled` on
+only after the ad block ids are set and approved.
 
-Restore (from a backup taken by the timer):
-
-```bash
-sudo systemctl stop collabpad
-```
-
-```bash
-sudo bash -c 'mkdir -p /var/lib/collabpad/replaced && mv /var/lib/collabpad/collabpad.db* /var/lib/collabpad/replaced/'
-```
-
-```bash
-sudo -u collabpad cp /var/lib/collabpad/backups/collabpad-YYYY-MM-DD.db /var/lib/collabpad/collabpad.db
-```
-
-```bash
-sudo -u collabpad cp -rn /var/lib/collabpad/backups/sprites/. /var/lib/collabpad/sprites/
-```
-
-```bash
-sudo systemctl start collabpad
-```
-
-## 10. Roll back to the old app
-
-The old database is untouched in `/var/lib/collabpad/legacy/`.
-
-```bash
-sudo systemctl stop collabpad
-```
-
-```bash
-sudo bash -c 'mkdir -p /var/lib/collabpad/living-canvas && mv /var/lib/collabpad/collabpad.db* /var/lib/collabpad/sprites /var/lib/collabpad/living-canvas/ && cp -p /var/lib/collabpad/legacy/collabpad.db /var/lib/collabpad/'
-```
-
-```bash
-cd /opt/collabpad && sudo -u collabpad git checkout legacy-v1 && sudo -u collabpad .venv/bin/pip install -r requirements.txt
-```
-
-```bash
-cd /opt/collabpad/web && sudo -u collabpad npm ci && sudo -u collabpad npm run build && sudo systemctl start collabpad
-```
-
-## 11. Later updates
-
-Unchanged from legacy: pull, install, build, restart, health check.
+## 11. Updates
 
 ```bash
 sudo /opt/collabpad/deploy/update.sh
 ```
 
-A restart drops every socket; clients reconnect on their own and the world resumes from
-the last snapshot (at most 5 s lost). Never run more than one worker or a second copy of
-the service: rooms, leases and the simulation live in one process.
+It runs `git pull --ff-only`, rebuilds, recreates the containers and checks health. A
+restart drops every socket. Clients reconnect on their own, and the world resumes from the
+last snapshot (at most 5 s lost). Never run a second replica of `app`.
 
-## 12. Smoke test after the first deploy
+If an update changes `deploy/nginx/collabpad.conf`, copy it again and reload Nginx:
+
+```bash
+sudo cp /opt/collabpad/deploy/nginx/collabpad.conf /etc/nginx/sites-available/collabpad.conf && sudo nginx -t && sudo systemctl reload nginx
+```
+
+## 12. Logs and restarts
+
+```bash
+cd /opt/collabpad && sudo docker compose logs --tail=200 app vlm-egress
+```
+
+```bash
+cd /opt/collabpad && sudo docker compose restart app
+```
+
+About a minute after the first visitor opens the world, the app log shows a line like
+`Simulation: 10 Hz, … tick p50 … ms`, and then one every minute. "running at 5 Hz" means the
+server is too slow for 10 ticks a second.
+
+## 13. Restore a backup
+
+```bash
+cd /opt/collabpad && sudo docker compose stop app
+```
+
+Replace `YYYY-MM-DD` with the backup's date. The current database is moved aside into
+`replaced/`, not deleted:
+
+```bash
+cd /opt/collabpad && sudo docker compose run --rm --no-deps app sh -c 'set -e; mkdir -p /var/lib/collabpad/replaced; mv /var/lib/collabpad/collabpad.db* /var/lib/collabpad/replaced/; cp /var/lib/collabpad/backups/collabpad-YYYY-MM-DD.db /var/lib/collabpad/collabpad.db; cp -rn /var/lib/collabpad/backups/sprites/. /var/lib/collabpad/sprites/'
+```
+
+```bash
+cd /opt/collabpad && sudo docker compose up -d --wait
+```
+
+## 14. Wipe the world (start over with an empty database)
+
+This **deletes** the database, the sprites and the backups in the volume. Copy the backups out
+first (step 7) if you might want them.
+
+```bash
+cd /opt/collabpad && sudo docker compose down
+```
+
+```bash
+sudo docker volume rm collabpad_data
+```
+
+```bash
+cd /opt/collabpad && sudo docker compose up -d --wait
+```
+
+## 15. Smoke test
 
 In two browsers (one in RU, one in EN):
 
-1. `https://collabpad.ru/w` opens the world; both see each other's strokes.
-2. Draw a cow, lasso it, press ОЖИВИ / ALIVE: goo appears in both, then the cow (with a VLM
-   key, recognised; without one, the type grid).
+1. `https://collabpad.ru/w` opens the world, and each browser sees the other's strokes.
+2. Draw a cow, lasso it and press ОЖИВИ / ALIVE. Goo appears in both, then the cow: recognised
+   with a VLM key, or the type grid without one.
 3. `http://colabpad.ru/` redirects to `https://collabpad.ru/?utm_medium=typo_colabpad`.
-4. Sign in by e-mail (the mail arrives), buy Plus with the test card, create a private world,
+4. Sign in by e-mail (the mail arrives), buy Plus with the test card, create a private world and
    share it.
-5. After a minute the journal has a `Simulation:` line with p95 well under 60 ms.
 
-Optional, on the server, before announcing: the load test, which uses a throwaway database
-in `/tmp` and never touches the real one (it takes about two minutes; stop it with Ctrl+C):
+## 16. Remove CollabPad from a server
 
-```bash
-cd /opt/collabpad && sudo -u collabpad env -u PYTHONPATH .venv/bin/python scripts/loadtest.py --report /tmp/loadtest.md
-```
-
----
-
-## Docker variant
-
-If you run the Compose setup instead of systemd (see `docs/DOCKER.md`), the database and
-sprites live in the `collabpad_data` volume. To start with a fresh database and keep the old
-one:
+This deletes everything, including the data volume. Other sites aren't touched.
 
 ```bash
-docker compose stop app
+cd /opt/collabpad && sudo docker compose --profile egress down -v --rmi local
 ```
 
 ```bash
-docker compose run --rm --no-deps app sh -c 'mkdir -p /var/lib/collabpad/legacy && mv /var/lib/collabpad/collabpad.db* /var/lib/collabpad/legacy/'
+sudo rm -f /etc/nginx/sites-enabled/collabpad.conf /etc/nginx/sites-available/collabpad.conf && sudo nginx -t && sudo systemctl reload nginx
 ```
 
 ```bash
-docker compose up --build -d --wait
+sudo certbot delete --cert-name collabpad.ru && sudo rm -f /etc/letsencrypt/renewal-hooks/deploy/collabpad
 ```
 
-Settings go in `.env` next to `compose.yaml` (see `.env.example`). To send only the VLM
-calls through Tailscale (section 5a), set `TS_AUTHKEY`, `TS_EXIT_NODE` and
-`VLM_PROXY_URL=http://vlm-egress:1055` in `.env` and start with
-`docker compose --profile egress up --build -d --wait`. Backups:
-`docker compose exec app python deploy/backup.py` (database and sprites, inside the volume),
-then `docker compose cp app:/var/lib/collabpad/backups ./backups`. The container's `init`
-sends stop signals to Uvicorn only, so the simulation saves the world on shutdown.
+```bash
+sudo rm -rf /opt/collabpad
+```
+
+Finally, remove the backup line from `sudo crontab -e`, and the `collabpad-vlm-egress`
+machine from the Tailscale admin console.

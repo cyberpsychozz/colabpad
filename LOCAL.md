@@ -10,7 +10,7 @@
 docker compose up --build -d --wait
 ~~~
 
-Открой http://127.0.0.1:8000. Остановка — docker compose down. Python и Node.js
+Открой http://127.0.0.1:1744. Остановка — docker compose down. Python и Node.js
 на компьютере для этого способа не нужны. База Docker хранится в отдельном томе;
 перенос базы из data/ выполняется отдельно по [инструкции](docs/DOCKER.md).
 
@@ -79,17 +79,10 @@ npm run build
 
 ## Что подготовлено для VPS
 
-В deploy/ находятся Nginx, первоначальная HTTP-конфигурация для certbot, systemd, таймер ежедневной онлайн-копии SQLite с хранением 14 копий, скрипт обновления и хук продления сертификата. Порядок установки — в исходном README.md. После установки сервиса бэкап включается так:
-
-~~~bash
-sudo install -m 644 deploy/systemd/collabpad-backup.service /etc/systemd/system/
-sudo install -m 644 deploy/systemd/collabpad-backup.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now collabpad-backup.timer
-sudo install -m 755 deploy/renew-hook.sh /etc/letsencrypt/renewal-hooks/deploy/collabpad
-~~~
-
-Создай /var/lib/collabpad/backups с владельцем collabpad. Копирование живого файла базы через cp не применяется: deploy/backup.py использует SQLite Backup API и проверяет целостность результата.
+На сервере приложение работает в Docker Compose (порт 127.0.0.1:1744), перед ним Nginx хоста.
+В deploy/ — конфигурации Nginx (в том числе первоначальная HTTP-конфигурация для certbot), хук продления
+сертификата, утилита онлайн-копии SQLite (14 копий, запускается cron'ом внутри контейнера) и update.sh.
+Пошаговая установка — в docs/agent/deploy.md.
 
 Логи HTTP-доступа и Nginx с адресами посетителей отключены согласно требованию не сохранять IP. Для ошибок приложения остаются сообщения с traceback без содержимого штрихов и запросов. В Uvicorn всегда один worker.
 

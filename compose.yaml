@@ -7,11 +7,11 @@ services:
     init: true
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${COLLABPAD_PORT:-8000}:8000"
+      - "127.0.0.1:${COLLABPAD_PORT:-1744}:8000"
     environment:
       # SQLite and baked sprites both live in the data volume.
       DATA_DIR: /var/lib/collabpad
-      PUBLIC_URL: "${PUBLIC_URL:-http://localhost:8000}"
+      PUBLIC_URL: "${PUBLIC_URL:-http://localhost:1744}"
       SMTP_HOST: "${SMTP_HOST:-}"
       SMTP_PORT: "${SMTP_PORT:-465}"
       SMTP_FROM: "${SMTP_FROM:-}"
@@ -24,7 +24,7 @@ services:
       VLM_PROXY_URL: "${VLM_PROXY_URL:-}"
       YOOKASSA_SHOP_ID: "${YOOKASSA_SHOP_ID:-}"
       YOOKASSA_SECRET_KEY: "${YOOKASSA_SECRET_KEY:-}"
-      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:1744,http://127.0.0.1:1744}"
       FORWARDED_ALLOW_IPS: "${COLLABPAD_FORWARDED_ALLOW_IPS:-127.0.0.1}"
       MAX_POINTS_PER_STROKE: "${MAX_POINTS_PER_STROKE:-2000}"
       MAX_PAYLOAD_BYTES: "${MAX_PAYLOAD_BYTES:-65536}"
