@@ -1,4 +1,4 @@
--- Fresh Living Canvas schema (AGENTS.md §5). ids are TEXT, times are unix ms,
+-- Fresh Living Canvas schema (docs/spec.md §5). ids are TEXT, times are unix ms,
 -- JSON is TEXT. There is no migration from the legacy database.
 PRAGMA foreign_keys = ON;
 

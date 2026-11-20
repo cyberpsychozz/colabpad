@@ -1,4 +1,4 @@
-# Object types as presets of ECS components (AGENTS.md §3). The VLM fills in the
+# Object types as presets of ECS components (docs/spec.md §3). The VLM fills in the
 # parameters marked "from_vlm"; everything else comes from here and balance.yaml.
 creature:
   title: {ru: Существо, en: Creature}

@@ -30,7 +30,7 @@ def connect(path: str) -> sqlite3.Connection:
         # There is no migration: the old file is discarded by a human, never by us.
         raise LegacyDatabase(
             f"{path} was created by another version of CollabPad. "
-            "Move or delete it and start again (see docs/agent/deploy.md)."
+            "Move or delete it and start again (see docs/deploy.md)."
         )
     connection.executescript(Path(__file__).with_name("schema.sql").read_text())
     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")

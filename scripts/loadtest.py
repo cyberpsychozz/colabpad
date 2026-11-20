@@ -1,7 +1,7 @@
 """T25 load test: a real server, 2 000 living entities and 50 socket clients.
 
     env -u PYTHONPATH .venv/bin/python scripts/loadtest.py [--entities 2000] [--clients 50]
-        [--seconds 60] [--report docs/agent/loadtest.md]
+        [--seconds 60] [--report docs/reports/loadtest.md]
 
 It builds a throwaway database in a temporary folder, fills a block of chunks in the
 shared world with entities, starts the app (one Uvicorn worker plus the simulation

@@ -15,16 +15,17 @@ CollabPad — один большой общий мир в браузере, г�
 - «Плюс» (299 ₽/мес): без рекламы, до 5 приватных миров с доступом по ссылке и ролям,
   50 оживлений в день. Платит только хозяин мира.
 
-Подробности:
+Документация — в [`docs/`](docs/):
 
 | Документ | Что там |
 |---|---|
-| [`AGENTS.md`](AGENTS.md) | задание для ИИ-агента (англ.): продукт, стек, контракты, схема БД, план работ |
-| [`docs/agent/handoff.md`](docs/agent/handoff.md) | что сделано, что нет, решения, отличающиеся от задания |
-| [`docs/agent/deploy.md`](docs/agent/deploy.md) | выкладка на сервер по шагам, бэкапы, откат |
-| [`docs/agent/loadtest.md`](docs/agent/loadtest.md) | нагрузочный тест: 2 000 существ и 50 клиентов |
-| [`LOCAL.md`](LOCAL.md), [`docs/DOCKER.md`](docs/DOCKER.md) | локальный запуск и Docker |
-| `docs/CollabPad Архитектура и ТЗ.docx`, `docs/CollabPad Бизнес-гипотеза.docx` | ТЗ и бизнес-гипотеза |
+| [`docs/development.md`](docs/development.md) | локальный запуск (Docker или без него), тесты, бэкап |
+| [`docs/deploy.md`](docs/deploy.md) | выкладка на сервер по шагам, бэкапы, откат (англ.) |
+| [`docs/spec.md`](docs/spec.md) | спецификация продукта: типы, взаимодействия, контракты, схема БД, сценарии приёмки (англ.) |
+| [`docs/status.md`](docs/status.md) | что не сделано и не проверено, открытые вопросы (англ.) |
+| [`docs/reports/`](docs/reports/) | нагрузочный тест, точность нейросети, прогон сценариев в браузере (англ.) |
+| [`docs/background/`](docs/background/) | ТЗ и бизнес-гипотеза (.docx) |
+| [`AGENTS.md`](AGENTS.md) | правила для ИИ-агентов (англ.) |
 
 ---
 
@@ -65,7 +66,7 @@ SQLite (DATA_DIR/collabpad.db) + спрайты (DATA_DIR/sprites/)
 ```
 
 Открой http://127.0.0.1:8000/w. Подготовка окружения с нуля и запуск через Docker —
-в [`LOCAL.md`](LOCAL.md). Без ключа нейросети оживление работает через ручной выбор типа;
+в [`docs/development.md`](docs/development.md). Без ключа нейросети оживление работает через ручной выбор типа;
 без SMTP коды для входа пишутся в лог сервера.
 
 Тесты:
@@ -98,11 +99,12 @@ app/        сервер: main.py, config.py, db.py, schema.sql, retention.py
   repo/     SQL по семействам таблиц
   alive/    оживление: выбор штрихов, растр, нейросеть, риг, очередь
   sim/      симуляция мира: процесс, мост с основным процессом, ECS, системы, типы
-  auth/ billing/ i18n/
+  auth/ billing/ ads/ i18n/
 web/src/    клиент: камера, куски мира, рисование, сокет, отрисовка, интерфейс, i18n
 config/     YAML-настройки и флаги
 prompts/    промпт классификации
-scripts/    loadtest.py — нагрузочный тест
-deploy/     Nginx хоста, бэкап, update.sh (Docker Compose); установка — docs/agent/deploy.md
+scripts/    loadtest.py, vlm_accuracy.py — нагрузочный тест и точность нейросети
+deploy/     Nginx хоста, бэкап (Docker Compose); установка — docs/deploy.md
+.github/    выкладка: push в ветку deploy → проверки → обновление сервера по SSH
 tests/      pytest
 ```
