@@ -35,6 +35,9 @@ export async function openWorld(root, canvasId) {
   const body = element('div', { class: 'world-body' }, stage);
   const page = element('div', { class: 'world' }, bar, body);
   root.replaceChildren(page);
+  // Ad space goes in before the world loads, so the canvas never changes size for it; after
+  // the page is in the document, because the ad loader looks its containers up by id.
+  if (currentMe().ads) mountAds(body, stage, currentMe().adBlocks || {});
   localize(page);
 
   let config;
@@ -56,7 +59,6 @@ export async function openWorld(root, canvasId) {
 
   if (config.owner) status.after(shareButton(canvasId));
   if (config.kind === 'private') bar.querySelector('.brand').after(element('span', { class: 'world-title' }, config.title || ''));
-  if (currentMe().ads) mountAds(body, stage, currentMe().adBlocks || {});
   localize(bar);
   const { limits, bounds } = config;
   const canEdit = config.role === 'editor';

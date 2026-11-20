@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectAdblock, isBlocked, slotsFor, LOADER } from './ads.js';
+import { detectAdblock, isBlocked, renderParams, slotsFor, LOADER } from './ads.js';
 
 const wait = () => new Promise(resolve => setImmediate(resolve));
 const bait = hidden => { const b = { removed: false, hidden: () => hidden, remove() { b.removed = true; } }; return b; };
@@ -25,8 +25,20 @@ test('an empty ad fill is not a block, and a slow loader is not one either', asy
   assert.equal(await detectAdblock({ loadScript: () => new Promise(() => {}), makeBait: () => bait(false), wait }), false);
 });
 
-test('desktop gets two side slots, narrow screens one at the bottom', () => {
-  assert.deepEqual(slotsFor(1440), ['left', 'right']);
-  assert.deepEqual(slotsFor(1100), ['left', 'right']);
-  assert.deepEqual(slotsFor(390), ['bottom']);
+test('desktop gets two stacked slots on each side, narrow screens one at the bottom', () => {
+  const desktop = [
+    { where: 'left', block: 'side', n: 1 }, { where: 'left', block: 'side', n: 2 },
+    { where: 'right', block: 'side', n: 3 }, { where: 'right', block: 'side', n: 4 },
+  ];
+  assert.deepEqual(slotsFor(1440), desktop);
+  assert.deepEqual(slotsFor(1100), desktop);
+  assert.deepEqual(slotsFor(1099), [{ where: 'bottom', block: 'bottom', n: 1 }]);
+  assert.deepEqual(slotsFor(390), [{ where: 'bottom', block: 'bottom', n: 1 }]);
+});
+
+test('one block shown four times gets a distinct container and page number each time', () => {
+  const calls = slotsFor(1440).map(slot => renderParams('R-A-1-1', slot));
+  assert.deepEqual(calls.map(c => c.pageNumber), [1, 2, 3, 4]);
+  assert.equal(new Set(calls.map(c => c.renderTo)).size, 4);
+  assert.deepEqual(calls[0], { blockId: 'R-A-1-1', renderTo: 'yandex_rtb_R-A-1-1-1', pageNumber: 1 });
 });

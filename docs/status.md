@@ -21,9 +21,16 @@ Test runs: [`reports/`](reports/).
   - recurring charges need Robokassa's approval for the shop, and the docs don't say whether
     they work in test mode. `billing.recurring` stays off until both are known.
 - Real SMTP delivery.
+- Real РСЯ banners in the four slots (§12.15): the layout and the render calls are checked in
+  the browser against a stub loader; whether block `R-A-20462150-1` fills a 216–300 px wide,
+  ~300–400 px tall slot well (and whether РСЯ accepts one block shown four times with
+  `pageNumber`) is seen only once `ads.enabled` is on with the real id.
 - The adblock gate with a real ad blocker (§12.12): unit-tested; in the browser only "no
   blocker, empty fill, world opens" was seen.
-- Driving with the on-screen stick (touch); WASD was driven in the browser.
+- Driving with the on-screen stick (touch). §12.6 (a remote drives the car, the other player
+  is told it is taken) has no browser scenario: it was dropped from `web/e2e/` because it
+  failed often (B's click on the remote didn't take control within 10 s). The server side is
+  covered by pytest.
 - Entity animation with real part boxes (legs, wheels) in the browser: the rig is unit-tested
   and its sheets were reviewed by eye, but in the browser only drawings typed through the
   manual grid (no parts, so they hop) were seen.
