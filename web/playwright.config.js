@@ -14,6 +14,8 @@ import { join, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 export const PORT = 8030;
+// The seller's details shown in the footer and on /about, /offer, /privacy (config/legal.yaml).
+export const SELLER = { name: 'Тестов Тест Тестович', inn: '123456789012', email: 'help@example.org', phone: '+7 900 123-45-67' };
 export const ROBOKASSA = { login: 'collabpad-e2e', password1: 'e2e-test-one', password2: 'e2e-test-two' };
 
 // The config file is loaded by the runner and again by each worker: make the folder once.
@@ -35,6 +37,7 @@ if (!process.env.E2E_DIR) {
   edit('limits.yaml', /min_interval_s: \d+/, 'min_interval_s: 0');
   edit('balance.yaml', /fuse_s: \d+/, 'fuse_s: 4');
   edit('billing.yaml', /result_ips:\n/, 'result_ips:\n  - 127.0.0.1\n');
+  for (const [key, value] of Object.entries(SELLER)) edit('legal.yaml', new RegExp(`^(\\s*${key}): ""`, 'm'), `$1: "${value}"`);
   process.env.E2E_DIR = dir;
 }
 const DIR = process.env.E2E_DIR;

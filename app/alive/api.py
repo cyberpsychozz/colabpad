@@ -27,6 +27,7 @@ def create_router() -> APIRouter:
             "locale": session["locale"],
             "subscription": state.billing.public(state.repo.get_subscription(session["user_id"])),
             "quota": {"used": quota["used"], "limit": quota["limit"]},
+            "legal": state.config.legal.model_dump(),
         }
 
     @router.get("/api/me/events")

@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ROBOKASSA } from '../playwright.config.js';
+import { ROBOKASSA, SELLER } from '../playwright.config.js';
 
 const ALIVE = /^(ALIVE|ОЖИВИ)$/;
 const TOOL = {
@@ -305,4 +305,60 @@ test('buying Plus sends a signed test-mode Robokassa link; its ResultURL notice 
     await expect(page.getByText(active)).toBeVisible();
     await context.close();
   }
+});
+
+// §12.12: what Robokassa and Yandex moderators look for. Every page's footer links the about,
+// offer and privacy pages and shows the seller's details; the sign-in dialog links the privacy
+// policy, the plans page the offer; /ads.txt lists the authorized ad sellers.
+test('the footer leads to about, offer and privacy pages with the seller\'s details in both languages; ads.txt is served', async ({ browser, request }) => {
+  const languages = [
+    ['en-US', { about: 'About & contacts', offer: 'Terms of service', privacy: 'Privacy policy' }, 'About'],
+    ['ru-RU', { about: 'О проекте и контакты', offer: 'Публичная оферта', privacy: 'Политика обработки персональных данных' }, 'О проекте'],
+  ];
+  for (const [locale, links, aboutTitle] of languages) {
+    const context = await browser.newContext({ locale });
+    const page = await context.newPage();
+    await page.goto('/');
+    const footer = page.locator('footer');
+    await expect(footer).toContainText(`${SELLER.name} · `);
+    await expect(footer).toContainText(SELLER.inn);
+    await expect(footer.getByRole('link', { name: SELLER.email })).toHaveAttribute('href', `mailto:${SELLER.email}`);
+    await expect(footer.getByRole('link', { name: SELLER.phone })).toHaveAttribute('href', 'tel:+79001234567');
+
+    await footer.getByRole('link', { name: links.about, exact: true }).click();
+    await expect(page).toHaveURL(/\/about$/);
+    await expect(page.locator('h1')).toHaveText(aboutTitle);
+    await expect(page).toHaveTitle(aboutTitle);
+    const details = page.locator('dl.requisites');
+    for (const value of Object.values(SELLER)) await expect(details).toContainText(value);
+    await expect(page.locator('article')).toContainText(locale === 'en-US' ? /₽299/ : /299\s₽/);
+
+    for (const name of ['offer', 'privacy']) {
+      await page.locator('footer').getByRole('link', { name: links[name], exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`/${name}$`));
+      await expect(page.locator('article h2').first()).toBeVisible();
+      await expect(page.locator('article')).toContainText(`${SELLER.inn}`);
+      await expect(page.locator('article')).toContainText(SELLER.email);
+    }
+
+    await page.goto('/plans');
+    await expect(page.locator('main').getByRole('link', { name: links.offer, exact: true })).toHaveAttribute('href', '/offer');
+    await page.locator('.account-button').click();
+    await expect(page.locator('dialog').getByRole('link', { name: links.privacy, exact: true })).toHaveAttribute('href', '/privacy');
+    await context.close();
+  }
+
+  // The language switch redraws a document in place.
+  const context = await browser.newContext({ locale: 'en-US' });
+  const page = await context.newPage();
+  await page.goto('/privacy');
+  await expect(page.locator('h1')).toHaveText('Privacy policy');
+  await page.getByRole('button', { name: 'RU' }).click();
+  await expect(page.locator('h1')).toHaveText('Политика обработки персональных данных');
+  await expect(page).toHaveTitle('Политика обработки персональных данных');
+  await context.close();
+
+  const ads = await request.get('/ads.txt');
+  expect(ads.headers()['content-type']).toMatch(/^text\/plain/);
+  expect((await ads.text()).split('\n')).toContain('yandex.com, 108702699, DIRECT');
 });

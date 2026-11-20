@@ -336,11 +336,24 @@ def create_app(
     async def legacy_canvas_link(canvas_id: str) -> Response:
         return RedirectResponse("/w", status_code=302)
 
+    @application.get("/ads.txt", include_in_schema=False)
+    async def ads_txt() -> Response:
+        if config.ads_txt is None:
+            return Response(status_code=404)
+        return Response(
+            config.ads_txt,
+            media_type="text/plain; charset=utf-8",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
     @application.get("/", include_in_schema=False)
     @application.get("/w", include_in_schema=False)
     @application.get("/p/{slug}", include_in_schema=False)
     @application.get("/plans", include_in_schema=False)
     @application.get("/billing/return", include_in_schema=False)
+    @application.get("/about", include_in_schema=False)
+    @application.get("/offer", include_in_schema=False)
+    @application.get("/privacy", include_in_schema=False)
     async def index(request: Request) -> Response:
         path = settings.static_dir / "index.html"
         if not path.is_file():

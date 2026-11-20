@@ -20,7 +20,9 @@ export const getLocale = () => locale;
 export function setLocale(next) {
   if (!LOCALES.includes(next) || next === locale) return;
   locale = next;
-  for (const listener of listeners) listener(locale);
+  // A copy: a screen that redraws re-subscribes from inside its listener, and a Set would
+  // visit the re-added listener again in this same loop, forever.
+  for (const listener of [...listeners]) listener(locale);
 }
 
 export function onLocaleChange(listener) {

@@ -240,6 +240,16 @@ Check: sign in, open `/plans`, pay with Robokassa's test payment method. You com
 `/billing/return`, and the plan shows as active. Error 29 on Robokassa's page means a
 signature mismatch: wrong passwords, a different hash, or the receipt (see `docs/status.md`).
 
+### Seller details and ads.txt
+
+Robokassa and Yandex both check the site before approving it (`docs/spec.md` §9b). Before
+sending it to either, fill in `config/legal.yaml` in the repository (full name and ИНН as
+registered for НПД, support e-mail, phone) and deploy (step 11). Check that the footer of
+`https://collabpad.ru/` shows them and that `/about`, `/offer` and `/privacy` open.
+
+`config/ads.txt` is served at `https://collabpad.ru/ads.txt`. If РСЯ shows a different list in
+its cabinet, replace the file and deploy.
+
 ## 10. Flags
 
 `config/flags.yaml` is built into the image:
@@ -423,6 +433,8 @@ In two browsers (one in RU, one in EN):
 3. `http://colabpad.ru/` redirects to `https://collabpad.ru/?utm_medium=typo_colabpad`.
 4. Sign in by e-mail (the mail arrives), buy Plus with the test card, create a private world and
    share it.
+5. The landing page's footer shows the seller's details; `/about`, `/offer`, `/privacy` and
+   `/ads.txt` open.
 
 ## 16. Remove CollabPad from a server
 

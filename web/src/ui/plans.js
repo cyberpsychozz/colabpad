@@ -3,12 +3,12 @@ import { postCancel, postCheckout, countMetric } from '../api.js';
 import { getLocale, onLocaleChange, t } from '../i18n/i18n.js';
 import { currentMe, loadMe } from '../me.js';
 import { accountButton, formatDate, openAccount } from './account.js';
-import { brand, languageSwitch } from './chrome.js';
+import { brand, languageSwitch, siteFooter } from './chrome.js';
 import { element, localize } from './dom.js';
 import { errorText } from './errors.js';
 
-const PRICES = { plus_month: 299, plus_year: 2490 };
-const rubles = amount => new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'RUB', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 }).format(amount);
+export const PRICES = { plus_month: 299, plus_year: 2490 };
+export const rubles = amount => new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'RUB', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 }).format(amount);
 const header = () => element('header', { class: 'site-header' }, brand(), element('span', { class: 'spacer' }), accountButton(), languageSwitch());
 
 export function openPlans(root) {
@@ -48,7 +48,10 @@ function drawPlans(root, redraw) {
           element('h2', { 'data-i18n': 'plan.plus' }), element('p', { class: 'plan-price' }, t('plans.perMonth', { price: rubles(PRICES.plus_month) })),
           list(['plans.plus.noAds', 'plans.plus.worlds', 'plans.plus.alive', 'plans.plus.guests']),
           status, element('div', { class: 'plan-actions' }, buy('plus_month'), buy('plus_year')), cancel, problem)),
-      element('p', { class: 'small-note', 'data-i18n': 'plans.note' })));
+      element('p', { class: 'small-note', 'data-i18n': 'plans.note' }),
+      element('p', { class: 'small-note' }, element('span', { 'data-i18n': 'plans.offer' }), ' ',
+        element('a', { class: 'text-link', href: '/offer', target: '_blank', 'data-i18n': 'footer.offer' }))),
+    siteFooter());
   root.replaceChildren(page);
   localize(page);
 }
@@ -58,7 +61,8 @@ export function openBillingReturn(root) {
   let alive = true;
   const text = element('h1', { 'data-i18n': 'plans.checking' });
   const page = element('div', { class: 'home plans' }, header(),
-    element('main', {}, text, element('p', {}, element('a', { class: 'button primary', href: '/w', 'data-i18n': 'landing.enter' }))));
+    element('main', {}, text, element('p', {}, element('a', { class: 'button primary', href: '/w', 'data-i18n': 'landing.enter' }))),
+    siteFooter());
   root.replaceChildren(page);
   localize(page);
   (async () => {

@@ -48,6 +48,7 @@ function signIn(body, address = '') {
   element('label', { for: 'account-email', 'data-i18n': 'account.email' }), email,
   element('label', { class: 'check', for: 'account-consent' }, consent, element('span', { 'data-i18n': 'account.consent' })),
   element('p', { class: 'small-note', 'data-i18n': 'account.privacy' }),
+  element('p', { class: 'small-note' }, element('a', { class: 'text-link', href: '/privacy', target: '_blank', 'data-i18n': 'footer.privacy' })),
   problem,
   element('div', { class: 'dialog-actions' }, send));
   body.replaceChildren(form);

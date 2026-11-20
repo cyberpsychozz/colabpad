@@ -36,6 +36,22 @@ Test runs: [`reports/`](reports/).
   manual grid (no parts, so they hop) were seen.
 - §12.2/3/4/7 in a browser (behaviour over minutes): unit-tested per ● cell instead.
 
+- The legal pages (§9b) are written by an engineer from Robokassa's and Yandex's checklists,
+  not by a lawyer. Worth a read before moderation, especially the refund terms (unused whole
+  days, within 10 days) in `/offer` §4, which are a business decision.
+
 ## Open questions for the human
 
-None at the moment.
+- **Seller details are blank.** Fill in `config/legal.yaml` (full name, ИНН, support e-mail,
+  phone) and deploy before sending the site to Robokassa or РСЯ moderation; until then the
+  footer shows no seller and the documents say «не указано».
+- **Receipts for a self-employed seller.** The seller is self-employed (НПД), so receipts go to
+  «Мой налог» through Robokassa's «Робочеки СМЗ», which has to be switched on in the shop.
+  Robokassa builds that receipt from the `Receipt` item list, so `receipt.enabled` stays on;
+  `sno` must stay empty (the tax systems it lists are for ИП/ООО). Not checked against a real
+  shop yet.
+- **Roskomnadzor notification.** The server is in Russia, and the privacy policy says so
+  (152-FZ art. 18 p. 5). The operator still has to notify Roskomnadzor before processing
+  personal data (pd.rkn.gov.ru), unless an exemption applies.
+- **Auto-renewal.** The offer promises none. Turning `billing.recurring` on needs a new edition
+  of `/offer` (consent to recurring charges, how to stop them) at the same time.

@@ -1,0 +1,13 @@
+# Who sells Plus, and how to reach them (docs/spec.md §9b). Shown in the site footer, on
+# /about, /offer and /privacy, as Robokassa requires. Public data: no secrets here.
+# The seller is self-employed (налог на профессиональный доход). Empty fields are hidden;
+# fill every one of them before sending the site to Robokassa or Yandex moderation.
+seller:
+  # Full name as registered with the tax service, e.g. "Иванов Иван Иванович".
+  name: ""
+  # 12-digit ИНН.
+  inn: ""
+# Support contacts, shown on every page footer and on /about.
+email: ""
+# As it should be dialled, e.g. "+7 900 123-45-67".
+phone: ""
