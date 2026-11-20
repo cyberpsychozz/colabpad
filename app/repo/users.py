@@ -1,6 +1,7 @@
 """Sessions and users. E-mail is the only personal data stored."""
 
 import hashlib
+import hmac
 import secrets
 import sqlite3
 from typing import Any
@@ -28,15 +29,22 @@ class UserRepo:
         row = self.db.execute("SELECT * FROM session WHERE id=?", (session_id,)).fetchone()
         return dict(row) if row else None
 
-    def store_magic_token(self, digest: str, email: str, locale: str, expires: int) -> None:
-        self.db.execute("DELETE FROM magic_token WHERE expires_at <= ?", (now_ms(),))
+    @staticmethod
+    def code_digest(session_id: str, code: str) -> str:
+        return hashlib.sha256(f"{session_id}:{code}".encode()).hexdigest()
+
+    def store_login_code(self, session_id: str, email: str, locale: str, code: str, expires: int) -> None:
+        self.db.execute("DELETE FROM login_code WHERE expires_at <= ?", (now_ms(),))
         self.db.execute(
-            "INSERT INTO magic_token(token_hash,email,locale,expires_at) VALUES(?,?,?,?)",
-            (digest, email, locale, expires),
+            "INSERT INTO login_code(session_id,email,locale,code_hash,expires_at,attempts) VALUES(?,?,?,?,?,0)"
+            " ON CONFLICT(session_id) DO UPDATE SET email=excluded.email, locale=excluded.locale,"
+            " code_hash=excluded.code_hash, expires_at=excluded.expires_at, attempts=0",
+            (session_id, email, locale, self.code_digest(session_id, code), expires),
         )
 
-    def discard_magic_token(self, digest: str) -> None:
-        self.db.execute("DELETE FROM magic_token WHERE token_hash=?", (digest,))
+    def discard_login_code(self, session_id: str, code: str) -> None:
+        self.db.execute("DELETE FROM login_code WHERE session_id=? AND code_hash=?",
+                        (session_id, self.code_digest(session_id, code)))
 
     def cookie_session(self, cookie: str | None) -> dict[str, Any] | None:
         if not cookie:
@@ -51,31 +59,42 @@ class UserRepo:
         session = self.get_session(cookie)
         return session if session and not session["user_id"] else None
 
-    def redeem_magic_token(self, token: str, session: dict[str, Any] | None) -> str:
-        digest = hashlib.sha256(token.encode()).hexdigest()
+    def redeem_login_code(self, session: dict[str, Any], code: str, max_attempts: int) -> str:
+        """Check the code this session asked for; on success sign the session in and return a new cookie.
+
+        A wrong guess costs an attempt; the last one voids the code."""
+        sid = session["id"]
         now = now_ms()
         self.db.execute("BEGIN IMMEDIATE")
         try:
-            link = self.db.execute(
-                "DELETE FROM magic_token WHERE token_hash=? RETURNING email,locale,expires_at",
-                (digest,),
-            ).fetchone()
-            if not link or link["expires_at"] <= now:
+            pending = self.db.execute("SELECT * FROM login_code WHERE session_id=?", (sid,)).fetchone()
+            failure: AppError | None = None
+            if not pending or pending["expires_at"] <= now:
+                failure = AppError("CODE_EXPIRED", "code")
+            elif not hmac.compare_digest(pending["code_hash"], self.code_digest(sid, code)):
+                attempts = pending["attempts"] + 1
+                if attempts >= max_attempts:
+                    failure = AppError("CODE_EXPIRED", "code")
+                else:
+                    self.db.execute("UPDATE login_code SET attempts=? WHERE session_id=?", (attempts, sid))
+                    failure = AppError("CODE_INVALID", "code", {"left": max_attempts - attempts})
+            if failure:
+                if failure.code == "CODE_EXPIRED":
+                    self.db.execute("DELETE FROM login_code WHERE session_id=?", (sid,))
                 self.db.commit()
-                raise AppError("UNAUTHENTICATED")
+                raise failure
+            self.db.execute("DELETE FROM login_code WHERE session_id=?", (sid,))
             self.db.execute(
                 "INSERT INTO app_user(id,email,locale,created_at) VALUES(?,?,?,?) "
                 "ON CONFLICT(email) DO NOTHING",
-                (str(uuid4()), link["email"], link["locale"], now),
+                (str(uuid4()), pending["email"], pending["locale"], now),
             )
-            user_id = self.db.execute("SELECT id FROM app_user WHERE email=?", (link["email"],)).fetchone()[0]
-            if session and session["user_id"]:
-                self.logout(session["id"])
-                session = None
-            if session is None:
-                session = self.create_session(link["locale"])
-            sid = session["id"]
-            self.db.execute("UPDATE session SET user_id=?,locale=? WHERE id=?", (user_id, link["locale"], sid))
+            user_id = self.db.execute("SELECT id FROM app_user WHERE email=?", (pending["email"],)).fetchone()[0]
+            if session["user_id"]:
+                # Signing in to another account from a signed-in browser: start a fresh session.
+                self.logout(sid)
+                sid = self.create_session(pending["locale"])["id"]
+            self.db.execute("UPDATE session SET user_id=?,locale=? WHERE id=?", (user_id, pending["locale"], sid))
             self.db.execute(
                 "INSERT INTO quota(subject,day,alive_used) SELECT ?,day,alive_used FROM quota WHERE subject=? "
                 "ON CONFLICT(subject,day) DO UPDATE SET alive_used=quota.alive_used+excluded.alive_used",

@@ -1,6 +1,10 @@
 {
-  "mail.login_subject": "Вход в CollabPad",
-  "mail.login_body": "Чтобы войти, откройте ссылку в течение {minutes} мин.\n{url}",
+  "mail.login_subject": "Код для входа в CollabPad: {code}",
+  "mail.login_greeting": "Здравствуйте!",
+  "mail.login_intro": "Ваш код для входа в CollabPad:",
+  "mail.login_how": "Введите его в окне входа на сайте. Код действует {minutes} мин. и подходит для одного входа.",
+  "mail.login_ignore": "Если вы не пытались войти, просто удалите это письмо: без кода в ваш аккаунт никто не войдёт.",
+  "mail.signature": "CollabPad — холст, где рисунки оживают",
   "err.VALIDATION_FAILED": "Проверь формат и допустимые значения",
   "err.UNAUTHENTICATED": "Сначала войди",
   "err.FORBIDDEN_ROLE": "Оживлять могут только редакторы этого мира",
@@ -35,5 +39,7 @@
   "mail.invite_subject": "Вас пригласили в мир «{title}» на CollabPad",
   "mail.invite_body": "Вам открыли доступ к миру «{title}». Роль: {role}.\nВойдите с этим адресом почты и откройте ссылку:\n{url}",
   "billing.description.plus_month": "CollabPad «Плюс», 1 месяц",
-  "billing.description.plus_year": "CollabPad «Плюс», 1 год"
+  "billing.description.plus_year": "CollabPad «Плюс», 1 год",
+  "err.CODE_INVALID": "Неверный код. Осталось попыток: {left}",
+  "err.CODE_EXPIRED": "Код устарел или попытки закончились — запроси новый"
 }

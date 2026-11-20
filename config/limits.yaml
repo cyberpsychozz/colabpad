@@ -47,8 +47,9 @@ worlds:
   max_private: 5
   max_members: 50
 auth:
-  magic_link_ttl_min: 15
-  magic_link_rate: 3/600
+  code_ttl_min: 15
+  code_rate: 3/600     # codes mailed per address
+  code_attempts: 5     # wrong guesses before a code is void
 retention_days:
   alive_job: 30
   sprite_after_death: 7

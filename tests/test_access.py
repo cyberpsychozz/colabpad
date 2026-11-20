@@ -150,7 +150,7 @@ def test_locale_is_saved_for_the_session_and_the_account(application: FastAPI, c
     assert client.put("/api/me/locale", json={"locale": "ru"}, headers={"Accept-Language": "en"}).status_code == 204
     assert client.get("/api/me").json()["locale"] == "ru"
     user = sign_in(application, client, "a@example.org")
-    assert "Вход" in application.state.mailer.messages[-1][1]
+    assert "Код для входа" in application.state.mailer.messages[-1][1]
     client.put("/api/me/locale", json={"locale": "en"})
     row = application.state.repo.db.execute("SELECT locale FROM app_user WHERE id=?", (user["id"],)).fetchone()
     assert row[0] == "en" and client.get("/api/me").json()["locale"] == "en"

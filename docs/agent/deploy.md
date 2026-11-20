@@ -21,11 +21,27 @@ or Node: the image builds the frontend and runs the client tests during `docker 
 
 | What | `.env` | Without it |
 |---|---|---|
-| SMTP mailbox for sign-in links (implicit TLS, port 465) | `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASSWORD` | sign-in links are written to the container log instead of being mailed. **Don't run production like that**: anyone who can read the log can sign in as anyone. |
+| SMTP mailbox for sign-in codes (implicit TLS, port 465) | `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASSWORD` | sign-in codes are written to the container log instead of being mailed. **Don't run production like that**: anyone who can read the log can sign in as anyone. |
 | OpenRouter key | `VLM_API_KEY` | ALIVE still works: the author picks the type from a grid. Daily spend cap: `daily_budget_usd` in `config/vlm.yaml`. |
 | YooKassa **test** shop: shop id and a secret key that starts with `test_` | `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY` | checkout answers "Payment failed". A key not starting with `test_` is refused on purpose. |
 | Yandex Advertising Network block ids `R-A-…` | `ADS_BLOCK_SIDE`, `ADS_BLOCK_BOTTOM` | no ads. Ads also need `ads.enabled: true` in `config/flags.yaml`. |
 | Tailscale (optional): an exit node, plus a **reusable, tagged** auth key whose tag may use exit nodes (`autogroup:internet`) | `TS_AUTHKEY`, `TS_EXIT_NODE` | the VLM is called directly from the server's IP |
+
+### Keeping the sign-in letter out of spam
+
+The letter itself is plain (a greeting, the code, a text and an HTML part, a named sender).
+Most of what decides "spam" is the sending domain, and that is set at your DNS and mail
+provider, not in this repo:
+
+- `SMTP_FROM` is an address on `collabpad.ru` (e.g. `no-reply@collabpad.ru`; the app adds the
+  name "CollabPad"), sent through that domain's mail provider, not a personal mailbox on
+  another domain.
+- **SPF**: a TXT record on `collabpad.ru` that includes the provider (it gives the exact value).
+- **DKIM**: turn signing on at the provider and add the TXT record it shows.
+- **DMARC**: a TXT record at `_dmarc.collabpad.ru`, to start with `v=DMARC1; p=none; rua=mailto:<your address>`.
+
+Check the result by sending a code to a Gmail address and opening "Show original": SPF, DKIM
+and DMARC should all say `PASS`.
 
 ## 2. Install the host packages
 

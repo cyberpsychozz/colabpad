@@ -31,7 +31,7 @@ Tailscale instance using an exit node (the Compose `egress` profile, `docs/agent
 | Task | State |
 |---|---|
 | T0–T6, T8–T18 | done (T13 soak: `tests/test_sim_soak.py`; T14: `tests/test_sim_catchup.py`) |
-| T19 | magic-link login, session linking, logout, `PUT /api/me/locale`, login dialog with consent in RU/EN |
+| T19 | sign-in with a 6-digit e-mailed code, session linking, logout, `PUT /api/me/locale`, login dialog with consent in RU/EN |
 | T20 | private worlds (`/p/{slug}`), roles on every REST route and socket event, share dialog, invite mail |
 | T21 | YooKassa behind `app/billing/gateway.py` (fake in tests), checkout, webhook (re-fetch + IP allowlist), cancel, renewal, freeze/unfreeze, `/plans`, `/billing/return` |
 | T22 | ad slots, adblock detector and gate (`web/src/ads.js`, `web/src/ui/gate.js`) |
@@ -43,9 +43,9 @@ Tailscale instance using an exit node (the Compose `egress` profile, `docs/agent
 | Deploy | **Docker Compose only** (the owner's decision, 2026-11-20; overrides the brief's systemd units): app on `127.0.0.1:1744` behind the host's Nginx, which also serves other sites; backup by root cron; `deploy/update.sh` pulls and rebuilds. The systemd units and `deploy/collabpad.env.example` were removed |
 | T7 | 81 drawings (`scripts/drawings.py`), real VLM run: 77/81 = 95% top-1, RU/EN handwriting 14/14 (`docs/agent/vlm-accuracy.md`) |
 | §12 e2e | `web/e2e/scenarios.spec.js` with Playwright: 5 scenarios, both languages |
-| §5 / §8 extras | daily retention pass (`app/retention.py`), `GET /api/me/events?since=`, sign-in returns to the world it started from |
+| §5 / §8 extras | daily retention pass (`app/retention.py`), `GET /api/me/events?since=` |
 
-Local development without SMTP: mail (sign-in links, invitations) is printed to the server log
+Local development without SMTP: mail (sign-in codes, invitations) is printed to the server log
 (`ConsoleMailer`). Without YooKassa test keys checkout answers `PAYMENT_FAILED`; a key that does
 not start with `test_` is refused on purpose.
 
@@ -89,7 +89,7 @@ every ALIVE went through the manual grid (§12.8). Seen working:
 - a grenade: countdown visible, explosion after 20 s, the stroke 112 px from the centre of a
   118.5 px blast got `destroyed`, the one at 120 px stayed static;
 - `kill -9` of the simulation process: restarted within a second, world carried on;
-- magic-link sign-in (link from the log), Plus granted in the DB (no YooKassa test keys here),
+- sign-in (code from the log), Plus granted in the DB (no YooKassa test keys here),
   private world created, link access Player: the guest sees only the hand tool, can pet
   (and the server refuses `stroke:add` and ALIVE with `FORBIDDEN_ROLE`);
 - subscription expired → both clients reload into the frozen world with `canvas.frozen` and
@@ -157,8 +157,6 @@ into a narrow column near the right edge.
 - `/api/me/events?since=` (unix ms) lists events whose actors include an entity the caller's
   session or account brought to life, or a child of one; 100 per page, `next` for paging.
   World events now store every entity they name (`actors`).
-- The magic link carries `next` (only `/w`, `/plans` or `/p/{slug}`) to land where sign-in
-  started.
 - `world:delta` rows and `gone` lists name entities by `ref`, a small number main gives each
   entity (kept across simulation restarts); every full copy of an entity carries it.
 - The VLM gets what is left of the 25 s hard limit minus 5 s for rigging; past that the author
