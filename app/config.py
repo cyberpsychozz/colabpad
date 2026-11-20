@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     ads_block_side: str = ""
     ads_block_bottom: str = ""
     vlm_api_key: str = ""
+    # HTTP proxy for the VLM calls only (e.g. a Tailscale exit-node proxy). Empty: direct.
+    vlm_proxy_url: str = Field("", pattern=r"^(https?://\S+)?$")
     yookassa_shop_id: str = ""
     yookassa_secret_key: str = ""
     cors_origins: str = (

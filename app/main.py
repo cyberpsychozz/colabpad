@@ -140,7 +140,10 @@ def create_app(
         world = config.limits["world"]
         application.state.repo.ensure_world(world["bounds_w"], world["bounds_h"])
         ensure_builtin_sprites(application.state.repo, settings.sprites_dir)
-        http = httpx.AsyncClient()
+        # trust_env=False: a stray HTTPS_PROXY must not reroute payments or the VLM.
+        # Only the VLM client goes through VLM_PROXY_URL; YooKassa always connects directly.
+        http = httpx.AsyncClient(trust_env=False)
+        vlm_http = httpx.AsyncClient(proxy=settings.vlm_proxy_url or None, trust_env=False)
         sim = application.state.sim = SimBridge(
             settings, config, lambda: application.state.repo, application.state.realtime
         )
@@ -150,7 +153,7 @@ def create_app(
             config,
             lambda: application.state.repo,
             application.state.realtime,
-            vlm or build_vlm(http),
+            vlm or build_vlm(vlm_http),
             rig,
             on_spawn=lambda entity: sim.spawn(entity["id"]),
         )
@@ -175,6 +178,7 @@ def create_app(
             await application.state.alive.stop()
             await sim.stop()
             await http.aclose()
+            await vlm_http.aclose()
             await application.state.realtime.sio.shutdown()
             connection.close()
 

@@ -20,6 +20,8 @@ services:
       ADS_BLOCK_SIDE: "${ADS_BLOCK_SIDE:-}"
       ADS_BLOCK_BOTTOM: "${ADS_BLOCK_BOTTOM:-}"
       VLM_API_KEY: "${VLM_API_KEY:-}"
+      # Set to http://vlm-egress:1055 to send only the VLM calls through Tailscale.
+      VLM_PROXY_URL: "${VLM_PROXY_URL:-}"
       YOOKASSA_SHOP_ID: "${YOOKASSA_SHOP_ID:-}"
       YOOKASSA_SECRET_KEY: "${YOOKASSA_SECRET_KEY:-}"
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}"
@@ -48,5 +50,30 @@ services:
         max-size: "5m"
         max-file: "2"
 
+  # Optional (docker compose --profile egress up): Tailscale in userspace mode as an HTTP
+  # proxy that leaves through an exit node. Only the VLM client uses it; everything else
+  # (ЮKassa, mail, visitors) stays on the host network. No TUN device, no NET_ADMIN.
+  vlm-egress:
+    profiles: [egress]
+    image: tailscale/tailscale:v1.104.7
+    hostname: collabpad-vlm-egress
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: "${TS_AUTHKEY:-}"
+      TS_HOSTNAME: collabpad-vlm-egress
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "true"
+      TS_OUTBOUND_HTTP_PROXY_LISTEN: "0.0.0.0:1055"
+      TS_EXTRA_ARGS: "--exit-node=${TS_EXIT_NODE:-}"
+    volumes:
+      - egress:/var/lib/tailscale
+    # No published ports: the proxy is reachable only from this Compose network.
+    logging:
+      driver: local
+      options:
+        max-size: "5m"
+        max-file: "2"
+
 volumes:
   data:
+  egress:
