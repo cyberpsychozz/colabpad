@@ -1,6 +1,6 @@
 // The adblock gate and the ad slots around the canvas.
 import { countMetric } from '../api.js';
-import { detectAdblock, slotsFor } from '../ads.js';
+import { detectAdblock, renderParams, slotsFor } from '../ads.js';
 import { brand, languageSwitch } from './chrome.js';
 import { element, localize } from './dom.js';
 
@@ -8,6 +8,8 @@ const count = key => countMetric(key).catch(() => {});
 
 const browserProbe = {
   loadScript: url => new Promise((resolve, reject) => {
+    // The loader runs this queue when it arrives, so it must exist before the loader does.
+    window.yaContextCb = window.yaContextCb || [];
     const script = element('script', { src: url, async: true });
     script.onload = resolve;
     script.onerror = reject;
@@ -51,15 +53,25 @@ export async function passGate(root, probe = browserProbe) {
   });
 }
 
-// Puts the ad slots around the stage. Returns nothing to clean up: the page owns them.
+// Puts the ad slots around the stage: two stacked in a rail on either side on desktop, one
+// below on narrow screens. Called before the world loads, so the canvas gets its final size
+// at once. Returns nothing to clean up: the page owns them.
 export function mountAds(body, stage, blocks) {
-  for (const where of slotsFor(window.innerWidth)) {
-    const blockId = where === 'bottom' ? blocks.bottom : blocks.side;
+  const rails = {};
+  for (const slot of slotsFor(window.innerWidth)) {
+    const blockId = blocks[slot.block];
     if (!blockId) continue;
-    const id = `ad-${where}`;
-    const slot = element('aside', { class: `ad-slot ad-${where}`, 'data-i18n-label': 'ads.label' }, element('div', { id }));
-    if (where === 'left') stage.before(slot); else if (where === 'right') stage.after(slot); else body.after(slot);
+    const params = renderParams(blockId, slot);
+    const box = element('div', { class: 'ad-slot', 'data-i18n-label': 'ads.label' }, element('div', { id: params.renderTo }));
+    if (slot.where === 'bottom') body.after(element('aside', { class: 'ad-bottom' }, box));
+    else {
+      if (!rails[slot.where]) {
+        rails[slot.where] = element('aside', { class: `ad-rail ad-${slot.where}` });
+        if (slot.where === 'left') stage.before(rails.left); else stage.after(rails.right);
+      }
+      rails[slot.where].append(box);
+    }
     window.yaContextCb = window.yaContextCb || [];
-    window.yaContextCb.push(() => window.Ya?.Context?.AdvManager?.render({ blockId, renderTo: id }));
+    window.yaContextCb.push(() => window.Ya?.Context?.AdvManager?.render(params));
   }
 }

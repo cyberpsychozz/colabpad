@@ -1383,9 +1383,16 @@ footer {
 .plan-card ul { padding-left:18px; line-height:1.9; font-size:14px; margin:0 0 8px }
 .plan-status { font-size:13px; color:var(--muted) }
 .plan-card .text-link { margin-top:14px; display:block }
-.ad-slot { flex:none; width:160px; min-height:600px; align-self:center; overflow:hidden }
-.ad-slot.ad-bottom { width:100%; min-height:0; max-height:120px; align-self:auto }
-@media(min-width:1500px) { .ad-slot.ad-left, .ad-slot.ad-right { width:300px } }
+/* Ad space is fixed by the layout alone: what a banner loads (or doesn't) never resizes it. */
+.ad-rail { flex:none; width:240px; display:flex; flex-direction:column; justify-content:center; gap:12px; padding:12px; box-sizing:border-box; border-color:var(--line); border-style:solid; border-width:0 }
+.ad-rail.ad-left { border-right-width:1px }
+.ad-rail.ad-right { border-left-width:1px }
+.ad-rail .ad-slot { flex:1 1 0; min-height:0; max-height:600px }
+.ad-slot { position:relative; overflow:hidden; contain:strict }
+.ad-slot > div { width:100%; height:100% }
+.ad-bottom { flex:none; height:100px; border-top:1px solid var(--line) }
+.ad-bottom .ad-slot { height:100% }
+@media(min-width:1500px) { .ad-rail { width:324px } }
 @media(max-width:760px) {
   .plan-grid { grid-template-columns:1fr }
   .world-bar { gap:8px; padding:6px 8px }

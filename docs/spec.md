@@ -463,9 +463,9 @@ Codes:
 ## 9. Ads, adblock gate, plans, auth, billing
 
 - **Show ads** when the viewer's plan is free (including anonymous) **and** `ads.enabled`. Ads depend on the **viewer's** plan, never the host's.
-- **Layout:** desktop gets vertical РСЯ blocks left and right of the canvas (160×600 / 300×600). Narrow screens get one adaptive block at the bottom.
+- **Layout:** desktop (≥ 1100 px wide) gets a rail on either side of the canvas (240 px, 324 px from 1500 px), each with **two РСЯ slots stacked** — four in all, the side block (`ADS_BLOCK_SIDE`) shown four times with `pageNumber` 1–4 and its own container each. Narrow screens get one block (`ADS_BLOCK_BOTTOM`) in a 100 px strip at the bottom. The slots are sized by CSS alone and laid out before the world loads, so a banner arriving, failing or being oversized **never moves or resizes the canvas**. The choice of layout is made once when the world opens.
 - **Adblock detector (client, `web/src/ads.js`):**
-  1. Load the РСЯ loader with `onerror`.
+  1. Create `window.yaContextCb`, then load the РСЯ loader with `onerror` (the loader is loaded only for viewers who get ads).
   2. Add a bait `div.adsbox.ad-banner` (1×1).
   3. After 1.5 s, blocked = the script failed **or** the bait is hidden. **An empty ad fill is NOT a block.**
   4. If blocked: don't mount the canvas, don't connect the socket, show the gate.
@@ -598,3 +598,4 @@ and what wasn't: [`reports/scenario-run.md`](reports/scenario-run.md) and [`stat
 12. With `ads.enabled` and an adblocker on as a free user → the gate; turn it off → retry → the canvas opens. An empty ad fill doesn't trigger the gate.
 13. Killing the sim process mid-game → it restarts and the world resumes (≤ 5 s lost).
 14. Switching RU ↔ EN changes every visible string. The missing-key test passes. The load test meets §7; `docker compose up --build` works from a clean clone; all tests are green.
+15. A free viewer on desktop sees four ad slots, two stacked on each side of the canvas; banners arriving late (even oversized ones) don't move the canvas. A Plus viewer sees no ad space; a narrow screen gets one fixed strip at the bottom.

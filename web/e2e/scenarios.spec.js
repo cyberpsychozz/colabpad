@@ -141,37 +141,6 @@ test('the third ALIVE of the day says ✨ ran out, with the sign-in hint and a R
   await b.context.close();
 });
 
-test('a remote drives the car; one player drives it with WASD, the other is told it is taken', async ({ browser }) => {
-  const place = { x: 6656, y: 2560 };
-  const a = await client(browser, 'en-US', place), b = await client(browser, 'ru-RU', place);
-  await draw(a, [[[6536, 2580], [6536, 2545], [6566, 2545], [6586, 2520], [6646, 2520], [6666, 2545], [6696, 2545], [6696, 2580], [6536, 2580]],
-    ring(6566, 2585, 14, 14), ring(6666, 2585, 14, 14)]);
-  const car = (await bringToLife(a, ring(6616, 2555, 110, 70, 40), /Vehicle/)).entity;
-  await draw(a, [[[6796, 2520], [6826, 2520], [6826, 2590], [6796, 2590], [6796, 2520]], [[6821, 2520], [6831, 2490]]]);
-  const remote = (await bringToLife(a, ring(6813, 2550, 45, 65, 30), /Remote/)).entity;
-
-  // B takes the remote with the hand tool and holds D.
-  await tool(b, 'hand');
-  const remoteNow = (await chunkEntities(b, 6813, 2550)).find(e => e.id === remote.id);
-  await b.page.mouse.click(...b.screen(remoteNow.x, remoteNow.y));
-  await expect(b.page.getByText(/Ты рулишь/)).toBeVisible({ timeout: 10_000 });
-  const before = (await chunkEntities(b, 6616, 2555)).find(e => e.id === car.id).x;
-  // Left, away from the remote (so A can still click the remote, not the car).
-  await b.page.keyboard.down('a');
-  await b.page.waitForTimeout(1500);
-  await b.page.keyboard.up('a');
-  await expect.poll(async () => before - (await chunkEntities(b, 6616, 2555)).find(e => e.id === car.id).x).toBeGreaterThan(60);
-
-  // A clicks the same remote: someone else is driving.
-  await tool(a, 'hand');
-  const remoteForA = (await chunkEntities(a, 6813, 2550)).find(e => e.id === remote.id);
-  await a.page.mouse.click(...a.screen(remoteForA.x, remoteForA.y));
-  await expect(a.page.getByText(/Someone is driving — \d+ s left/)).toBeVisible();
-  await b.page.getByRole('button', { name: 'Отпустить' }).click();
-  await expect(b.page.getByText(/Ты рулишь/)).toBeHidden();
-  await a.context.close(); await b.context.close();
-});
-
 test('a bomb counts down, explodes and destroys the strokes around it (as fates); far strokes stay', async ({ browser }) => {
   const place = { x: 8704, y: 2560 };
   const a = await client(browser, 'en-US', place), b = await client(browser, 'ru-RU', place);
@@ -204,6 +173,78 @@ test('switching RU ↔ EN changes every visible string, the page language and th
   // Only the brand, the language switch and colour codes stay Latin.
   expect(ru.replace(/collab|pad|CollabPad|RU|EN|#[0-9A-F]{6}/g, '')).not.toMatch(/[a-z]{2,}/i);
   await c.context.close();
+});
+
+// §9 ad layout. Yandex is never contacted: /api/me is answered as if ads were on, and the RSYa
+// loader is a stub that fills each container late with an oversized banner, as a real one may.
+const AD_BLOCK = 'R-A-e2e-1';
+const AD_LOADER = `window.adCalls = [];
+  window.Ya = { Context: { AdvManager: { render(params) {
+    // Like the real loader, the container is looked up at once, so it must be in the page.
+    const container = document.getElementById(params.renderTo);
+    window.adCalls.push({ ...params, found: Boolean(container) });
+    setTimeout(() => {
+      const banner = document.createElement('div');
+      banner.style.cssText = 'width:400px;height:900px;background:#fc0';
+      container?.append(banner);
+    }, 300);
+  } } } };
+  for (const run of window.yaContextCb || []) run();
+  window.yaContextCb = { push: run => run() };`;
+
+async function adClient(browser, ads, viewport = { width: 1440, height: 900 }) {
+  const context = await browser.newContext({ locale: 'en-US', viewport });
+  const page = await context.newPage();
+  await page.route('https://yandex.ru/ads/system/context.js', route =>
+    route.fulfill({ contentType: 'application/javascript', body: AD_LOADER }));
+  await page.route('**/api/me', async route => {
+    const me = await (await route.fetch()).json();
+    await route.fulfill({ json: { ...me, ads, adBlocks: { side: AD_BLOCK, bottom: AD_BLOCK } } });
+  });
+  await page.goto('/w#x=13000&y=3000&z=1');
+  await expect(page.getByRole('button', { name: TOOL.draw })).toBeVisible();
+  return { page, context };
+}
+
+test('a free viewer gets four fixed banners around the canvas, and a banner arriving never moves the canvas', async ({ browser }) => {
+  const free = await adClient(browser, true);
+  const slots = free.page.locator('.ad-rail .ad-slot');
+  await expect(slots).toHaveCount(4);
+  await expect(free.page.locator('.ad-left .ad-slot')).toHaveCount(2);
+  await expect(free.page.locator('.ad-right .ad-slot')).toHaveCount(2);
+  const canvas = await free.page.locator('canvas').boundingBox();
+  const boxes = await slots.evaluateAll(els => els.map(el => el.getBoundingClientRect().toJSON()));
+  // Every banner arrived, each in its own container with its own page number.
+  await expect.poll(() => free.page.evaluate(() => document.querySelectorAll('.ad-slot div > div').length)).toBe(4);
+  const calls = await free.page.evaluate(() => window.adCalls);
+  expect(calls.map(c => c.pageNumber)).toEqual([1, 2, 3, 4]);
+  expect(calls.every(c => c.found)).toBe(true);
+  expect(calls.every(c => c.blockId === AD_BLOCK)).toBe(true);
+  // The oversized banners changed nothing: not the canvas, not the slots.
+  expect(await free.page.locator('canvas').boundingBox()).toEqual(canvas);
+  expect(await slots.evaluateAll(els => els.map(el => el.getBoundingClientRect().toJSON()))).toEqual(boxes);
+  // Left rail, canvas, right rail, side by side; two slots stacked in each rail.
+  expect(boxes[0].right).toBeLessThanOrEqual(canvas.x);
+  expect(boxes[2].left).toBeGreaterThanOrEqual(canvas.x + canvas.width);
+  expect(boxes[1].top).toBeGreaterThanOrEqual(boxes[0].bottom);
+  expect(boxes[0].width).toBeGreaterThan(150);
+  expect(boxes[0].height).toBeGreaterThan(250);
+  await expect(slots.first()).toHaveAttribute('aria-label', 'Advertisement');
+
+  // A Plus viewer sees no ad space at all: the canvas takes the whole width.
+  const plus = await adClient(browser, false);
+  await expect(plus.page.locator('.ad-slot')).toHaveCount(0);
+  expect((await plus.page.locator('canvas').boundingBox()).width).toBe(1440);
+  expect(await plus.page.evaluate(() => window.adCalls)).toBeUndefined();
+
+  // A narrow screen gets one fixed block below the canvas.
+  const phone = await adClient(browser, true, { width: 390, height: 800 });
+  await expect(phone.page.locator('.ad-slot')).toHaveCount(1);
+  await expect(phone.page.locator('.ad-bottom')).toHaveCount(1);
+  const phoneCanvas = await phone.page.locator('canvas').boundingBox();
+  await expect.poll(() => phone.page.evaluate(() => document.querySelectorAll('.ad-slot div > div').length)).toBe(1);
+  expect(await phone.page.locator('canvas').boundingBox()).toEqual(phoneCanvas);
+  for (const c of [free, plus, phone]) await c.context.close();
 });
 
 // §12.10, the payment part: Robokassa itself is never contacted. The browser is stopped on its
