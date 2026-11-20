@@ -1,5 +1,7 @@
 # Who sells Plus, and how to reach them (docs/spec.md §9b). Shown in the site footer, on
-# /about, /offer and /privacy, as Robokassa requires. Public data: no secrets here.
+# /about, /offer and /privacy, as Robokassa requires.
+# Copy this file to config/legal.yaml (git-ignored, kept on the server only) and fill it in.
+# Without config/legal.yaml every field is blank.
 # The seller is self-employed (налог на профессиональный доход). Empty fields are hidden;
 # fill every one of them before sending the site to Robokassa or Yandex moderation.
 seller:

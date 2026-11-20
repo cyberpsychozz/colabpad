@@ -242,10 +242,24 @@ signature mismatch: wrong passwords, a different hash, or the receipt (see `docs
 
 ### Seller details and ads.txt
 
-Robokassa and Yandex both check the site before approving it (`docs/spec.md` §9b). Before
-sending it to either, fill in `config/legal.yaml` in the repository (full name and ИНН as
-registered for НПД, support e-mail, phone) and deploy (step 11). Check that the footer of
-`https://collabpad.ru/` shows them and that `/about`, `/offer` and `/privacy` open.
+Robokassa and Yandex both check the site before approving it (`docs/spec.md` §9b). The
+seller's details (full name and ИНН as registered for НПД, support e-mail, phone) live only on
+the server, in `config/legal.yaml`, which git ignores. Without it every field is blank. Create
+it once from the template, as the deploy user so later deploys can read it:
+
+```bash
+cd /opt/collabpad && sudo -u gh_deploy_collabpad cp -n config/legal.example.yaml config/legal.yaml && sudo -u gh_deploy_collabpad nano config/legal.yaml
+```
+
+The config is built into the image, so rebuild to apply it (later deploys keep the file):
+
+```bash
+cd /opt/collabpad && sudo docker compose up --build -d --wait
+```
+
+If the app refuses to start, `docker compose logs app` names the field that failed the check.
+Then check that the footer of `https://collabpad.ru/` shows the details and that `/about`,
+`/offer` and `/privacy` open.
 
 `config/ads.txt` is served at `https://collabpad.ru/ads.txt`. If РСЯ shows a different list in
 its cabinet, replace the file and deploy.

@@ -103,7 +103,10 @@ class _Seller(BaseModel):
 
 
 class Legal(BaseModel):
-    """config/legal.yaml: the seller's public details. Empty strings mean "not filled in yet"."""
+    """config/legal.yaml: the seller's public details. Empty strings mean "not filled in yet".
+
+    The file is git-ignored and optional (template: config/legal.example.yaml); without it
+    every field is blank."""
 
     model_config = ConfigDict(extra="forbid")
     seller: _Seller = _Seller()
@@ -111,7 +114,7 @@ class Legal(BaseModel):
     phone: str = Field("", pattern=r"^(\+?[\d\s()-]{6,20})?$")
 
 
-CONFIG_FILES = ("archetypes", "labels", "balance", "limits", "vlm", "billing", "legal")
+CONFIG_FILES = ("archetypes", "labels", "balance", "limits", "vlm", "billing")
 
 
 class GameConfig:
@@ -131,7 +134,8 @@ class GameConfig:
             read("balance"),
         )
         self.limits, self.vlm, self.billing = read("limits"), read("vlm"), read("billing")
-        self.legal = Legal.model_validate(read("legal"))
+        legal = directory / "legal.yaml"
+        self.legal = Legal.model_validate(read("legal")) if legal.is_file() else Legal()
         # Served as-is at /ads.txt (the IAB list of authorized ad sellers); optional.
         ads_txt = directory / "ads.txt"
         self.ads_txt = ads_txt.read_text("utf-8") if ads_txt.is_file() else None

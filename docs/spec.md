@@ -61,7 +61,7 @@ app/
 web/src/
   camera, chunks (tile cache + subscribe), draw, socket, api, ads, analytics,
   render/ (strokes, entities, goo, vfx), ui/ (tools, alive, chooser, control, share, plans, gate), i18n/
-config/  archetypes labels balance limits vlm billing flags legal (.yaml), ads.txt
+config/  archetypes labels balance limits vlm billing flags (.yaml), legal.yaml (git-ignored; template legal.example.yaml), ads.txt
 prompts/ classify.md
 scripts/ loadtest.py, vlm_accuracy.py, drawings.py
 deploy/  host Nginx configs, certbot renew hook, backup.py
@@ -493,7 +493,8 @@ navigation from the main page) ask for.
 
 - **The seller** is self-employed (налог на профессиональный доход). Their public details live in
   `config/legal.yaml` (`seller.name`, `seller.inn` — 12 digits, `email`, `phone`; validated, no
-  extra keys) and reach the browser in `/api/me` as `legal`. A blank field is hidden in the footer
+  extra keys). That file is git-ignored and kept on the server only; the repository has the blank
+  template `config/legal.example.yaml`, and without the file every field is blank. They reach the browser in `/api/me` as `legal`. A blank field is hidden in the footer
   and reads `legal.unset` («не указано» / "not specified") in the documents.
 - **Footer** (`siteFooter()` in `web/src/ui/chrome.js`) on `/`, `/plans`, `/billing/return` and
   the documents, not in the world: links to `/about`, `/plans`, `/offer`, `/privacy`; then
