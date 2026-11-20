@@ -11,8 +11,15 @@ Test runs: [`reports/`](reports/).
 
 ## Not verified
 
-- A real YooKassa test shop (only the fake and a mocked HTTP transport), so §12.10's payment
-  itself has not been walked.
+- A real Robokassa test shop ([`billing.md`](billing.md)): the link, ResultURL and recurring requests are checked against
+  Robokassa's docs only (pytest with a mocked transport, and a browser scenario that stops
+  before Robokassa's page), so §12.10's payment itself has not been walked. Three points the
+  docs leave open and a test payment should settle:
+  - the Receipt inside the signature: the docs say both "minified JSON" and "URL-encoded";
+    we URL-encode it (their PHP example does). Error 29 on the payment page means this is wrong.
+  - the signature of a recurring child charge is not spelled out; we sign it like the link.
+  - recurring charges need Robokassa's approval for the shop, and the docs don't say whether
+    they work in test mode. `billing.recurring` stays off until both are known.
 - Real SMTP delivery.
 - The adblock gate with a real ad blocker (§12.12): unit-tested; in the browser only "no
   blocker, empty fill, world opens" was seen.

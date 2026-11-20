@@ -1,4 +1,4 @@
-"""Plus subscriptions: checkout, the webhook, renewal, and freezing lapsed worlds."""
+"""Plus subscriptions: checkout, Robokassa's ResultURL, renewal, and freezing lapsed worlds."""
 
 import asyncio
 import ipaddress
@@ -7,7 +7,6 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import uuid4
 
 from app.billing.gateway import Payments
 from app.config import GameConfig, Settings
@@ -39,29 +38,47 @@ class Billing:
     def now(self) -> int:
         return int(self.clock() * 1000)
 
-    # ---- checkout and webhook
+    # ---- checkout and ResultURL
+
+    def receipt(self, plan: str, amount_kop: int) -> dict[str, Any] | None:
+        """The fiscal receipt (54-FZ) Robokassa registers for the payment, in Russian."""
+        settings = self.config.billing.get("receipt") or {}
+        if not settings.get("enabled"):
+            return None
+        item = {
+            "name": translate("ru", f"billing.description.{plan}"),
+            "quantity": 1,
+            "sum": amount_kop / 100,
+            "payment_method": settings["payment_method"],
+            "payment_object": settings["payment_object"],
+            "tax": settings["tax"],
+        }
+        return {**({"sno": settings["sno"]} if settings.get("sno") else {}), "items": [item]}
 
     async def checkout(self, session: dict[str, Any], plan: str) -> str:
         if not session.get("user_id"):
             raise AppError("UNAUTHENTICATED")
-        price = self.plans[plan]
-        payment = await self.payments.create({
+        price, repo = self.plans[plan], self.get_repo()
+        locale = pick_locale(None, session["locale"])
+        recurring = self.config.flags.billing.recurring
+        # No await from choosing the number to saving it: invoice numbers never repeat.
+        inv_id = repo.next_inv_id(self.now())
+        url = self.payments.payment_url({
+            "inv_id": inv_id,
             "amount_kop": price["amount_kop"],
-            "currency": self.config.billing["currency"],
-            "description": translate(pick_locale(None, session["locale"]), f"billing.description.{plan}"),
-            "metadata": {"userId": session["user_id"], "plan": plan},
-            "idempotence_key": str(uuid4()),
-            "return_url": f"{self.settings.public_url.rstrip('/')}/billing/return",
+            "description": translate(locale, f"billing.description.{plan}"),
+            "culture": locale,
+            "receipt": self.receipt(plan, price["amount_kop"]),
+            # Only an invoice paid with Recurring=true can be charged again later.
+            "recurring": recurring,
         })  # fmt: skip
-        if not payment.get("confirmation_url"):
-            raise AppError("PAYMENT_FAILED")
-        self.get_repo().insert_payment(
-            session["user_id"], payment["id"], price["amount_kop"], self.config.billing["currency"]
+        repo.insert_payment(
+            session["user_id"], inv_id, plan, price["amount_kop"], self.config.billing["currency"], recurring
         )
-        return payment["confirmation_url"]
+        return url
 
     def ip_allowed(self, host: str | None) -> bool:
-        for allowed in self.config.billing["webhook_ips"]:
+        for allowed in self.config.billing["result_ips"]:
             if host == allowed:
                 return True
             try:
@@ -71,32 +88,38 @@ class Billing:
                 continue
         return False
 
-    async def webhook(self, payment_id: str) -> None:
-        """Never trust the notification body: ask the provider what really happened."""
-        payment = await self.payments.get(payment_id)
-        if payment is not None:
-            await self.settle(payment)
+    async def result(self, fields: dict[str, str]) -> str:
+        """Robokassa's ResultURL: only a notification signed with password #2 counts. The
+        answer OK<InvId> tells Robokassa to stop repeating it."""
+        paid = self.payments.verify(fields)
+        if paid is None:
+            raise AppError("VALIDATION_FAILED")
+        await self.settle(paid)
+        return f"OK{paid['inv_id']}"
 
-    async def settle(self, payment: dict[str, Any]) -> bool:
+    async def settle(self, paid: dict[str, Any]) -> bool:
+        """paid: {inv_id, amount_kop} from a verified notification. True if it activated Plus."""
         repo = self.get_repo()
-        row = repo.get_payment(payment["id"])
-        if row is None or payment["status"] not in ("succeeded", "canceled"):
+        row = repo.get_payment(paid["inv_id"])
+        if row is None:
             return False
-        plan = self.plans.get(payment["metadata"].get("plan", ""))
-        if payment["status"] == "canceled" or plan is None or payment["amount_kop"] != row["amount_kop"]:
-            repo.settle_payment(payment["id"], "canceled")
+        plan = self.plans.get(row["plan"])
+        if plan is None or paid["amount_kop"] != row["amount_kop"]:
+            logger.warning("Payment %s does not match its invoice", paid["inv_id"])
+            repo.settle_payment(paid["inv_id"], "canceled")
             return False
         now = self.now()
         repo.db.execute("BEGIN IMMEDIATE")
         try:
-            # A repeated webhook finds the payment already settled and changes nothing.
-            fresh = repo.settle_payment(payment["id"], "succeeded")
+            # A repeated notification finds the payment already settled and changes nothing.
+            fresh = repo.settle_payment(paid["inv_id"], "succeeded")
             if fresh:
                 current = repo.get_subscription(row["user_id"])
                 start = max(now, (current or {}).get("current_period_end") or 0)
                 repo.activate_subscription(
-                    row["user_id"], start + plan["period_days"] * DAY_MS, payment["payment_method_id"]
-                )
+                    row["user_id"], start + plan["period_days"] * DAY_MS,
+                    paid["inv_id"] if row["recurring"] else None,
+                )  # fmt: skip
             repo.db.execute("COMMIT")
         except BaseException:
             repo.db.execute("ROLLBACK")
@@ -135,8 +158,10 @@ class Billing:
         repo, now = self.get_repo(), self.now()
         for subscription in repo.subscriptions():
             if subscription["status"] == "active" and now > (subscription["current_period_end"] or 0):
-                if not await self.renew(subscription):
-                    repo.set_subscription_status(subscription["user_id"], "past_due")
+                # past_due first: a period is charged at most once, and a renewal that Robokassa
+                # confirms at ResultURL makes the subscription active again.
+                repo.set_subscription_status(subscription["user_id"], "past_due")
+                await self.renew(subscription)
         for canvas in repo.db.execute("SELECT * FROM canvas WHERE kind='private'").fetchall():
             frozen = self.lapsed(repo.get_subscription(canvas["owner_user_id"]), now)
             if frozen != bool(canvas["frozen"]):
@@ -145,27 +170,25 @@ class Billing:
                 await self.realtime.frozen(canvas["id"], frozen)
 
     async def renew(self, subscription: dict[str, Any]) -> bool:
-        """Charge the saved payment method for another month. Off unless billing.recurring."""
-        if not self.config.flags.billing.recurring or not subscription["yk_payment_method_id"]:
+        """Charge another month by repeating the first paid invoice. Off unless billing.recurring.
+        True means Robokassa accepted the charge; the money arrives later at ResultURL."""
+        if not self.config.flags.billing.recurring or not subscription["parent_inv_id"]:
             return False
-        period = datetime.fromtimestamp((subscription["current_period_end"] or 0) / 1000, UTC)
-        price = self.plans["plus_month"]
-        try:
-            payment = await self.payments.create({
-                "amount_kop": price["amount_kop"],
-                "currency": self.config.billing["currency"],
-                "description": translate("ru", "billing.description.plus_month"),
-                "metadata": {"userId": subscription["user_id"], "plan": "plus_month"},
-                # One attempt per period: a retry of the same period is the same payment.
-                "idempotence_key": f"renew-{subscription['user_id']}-{period:%Y%m%d}",
-                "payment_method_id": subscription["yk_payment_method_id"],
-            })  # fmt: skip
-        except AppError:
-            return False
-        repo = self.get_repo()
-        if repo.get_payment(payment["id"]) is None:
-            repo.insert_payment(subscription["user_id"], payment["id"], price["amount_kop"], self.config.billing["currency"])
-        return await self.settle(payment)
+        repo, price = self.get_repo(), self.plans["plus_month"]
+        inv_id = repo.next_inv_id(self.now())
+        repo.insert_payment(
+            subscription["user_id"], inv_id, "plus_month", price["amount_kop"], self.config.billing["currency"], False
+        )
+        accepted = await self.payments.charge({
+            "inv_id": inv_id,
+            "previous_inv_id": subscription["parent_inv_id"],
+            "amount_kop": price["amount_kop"],
+            "description": translate("ru", "billing.description.plus_month"),
+            "receipt": self.receipt("plus_month", price["amount_kop"]),
+        })  # fmt: skip
+        if not accepted:
+            repo.settle_payment(inv_id, "canceled")
+        return accepted
 
     async def run(self) -> None:
         """Freeze checks every minute; the 03:00 MSK pass is the same sweep, logged once a day."""

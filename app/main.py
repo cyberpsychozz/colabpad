@@ -141,7 +141,7 @@ def create_app(
         application.state.repo.ensure_world(world["bounds_w"], world["bounds_h"])
         ensure_builtin_sprites(application.state.repo, settings.sprites_dir)
         # trust_env=False: a stray HTTPS_PROXY must not reroute payments or the VLM.
-        # Only the VLM client goes through VLM_PROXY_URL; YooKassa always connects directly.
+        # Only the VLM client goes through VLM_PROXY_URL; Robokassa always connects directly.
         http = httpx.AsyncClient(trust_env=False)
         vlm_http = httpx.AsyncClient(proxy=settings.vlm_proxy_url or None, trust_env=False)
         sim = application.state.sim = SimBridge(
@@ -160,7 +160,10 @@ def create_app(
         application.state.alive.start()
         billing = application.state.billing = Billing(
             settings, config, lambda: application.state.repo,
-            payments or build_payments(http, settings.yookassa_shop_id, settings.yookassa_secret_key),
+            payments or build_payments(
+                http, settings.robokassa_merchant_login, settings.robokassa_test_password1,
+                settings.robokassa_test_password2, settings.robokassa_hash,
+            ),
             application.state.realtime, sim,
         )  # fmt: skip
         await billing.sweep()

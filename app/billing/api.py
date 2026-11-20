@@ -1,14 +1,17 @@
-"""REST for plans: checkout, the provider's webhook, cancel."""
+"""REST for plans: checkout, Robokassa's ResultURL, cancel."""
 
 from typing import Annotated, Any
+from urllib.parse import parse_qsl
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import PlainTextResponse
 
 from app.auth.sessions import ensure_session
 from app.errors import AppError
 from app.models import CheckoutIn
 
 Session = Annotated[dict[str, Any], Depends(ensure_session)]
+MAX_RESULT_BYTES = 16_384
 
 
 def billing_router() -> APIRouter:
@@ -16,21 +19,20 @@ def billing_router() -> APIRouter:
 
     @router.post("/checkout")
     async def checkout(body: CheckoutIn, request: Request, session: Session) -> dict[str, str]:
-        return {"confirmationUrl": await request.app.state.billing.checkout(session, body.plan)}
+        return {"paymentUrl": await request.app.state.billing.checkout(session, body.plan)}
 
-    @router.post("/webhook")
-    async def webhook(request: Request) -> Response:
+    # The shop's technical settings choose GET or POST for ResultURL; both are accepted.
+    @router.api_route("/result", methods=["GET", "POST"])
+    async def result(request: Request) -> PlainTextResponse:
         billing = request.app.state.billing
         if not billing.ip_allowed(request.client.host if request.client else None):
             raise AppError("NOT_FOUND")
-        try:
-            payment_id = (await request.json())["object"]["id"]
-        except (ValueError, KeyError, TypeError):
-            raise AppError("VALIDATION_FAILED") from None
-        if not isinstance(payment_id, str) or len(payment_id) > 64:
+        body = await request.body()
+        if len(body) > MAX_RESULT_BYTES:
             raise AppError("VALIDATION_FAILED")
-        await billing.webhook(payment_id)
-        return Response(status_code=200)
+        fields = dict(request.query_params)
+        fields.update(parse_qsl(body.decode("utf-8", "replace"), keep_blank_values=True))
+        return PlainTextResponse(await billing.result(fields))
 
     @router.post("/cancel")
     async def cancel(request: Request, session: Session) -> dict[str, Any]:

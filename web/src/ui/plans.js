@@ -28,7 +28,7 @@ function drawPlans(root, redraw) {
     button.disabled = true;
     problem.textContent = t('plans.redirecting');
     countMetric('plus_clicked').catch(() => {});
-    try { location.href = (await postCheckout(plan)).confirmationUrl; }
+    try { location.href = (await postCheckout(plan)).paymentUrl; }
     catch (error) { problem.textContent = errorText(error.code); button.disabled = false; }
   } }, t(plan === 'plus_month' ? 'plans.buyMonth' : 'plans.buyYear', { price: rubles(PRICES[plan]) }));
   const list = keys => element('ul', {}, ...keys.map(key => element('li', { 'data-i18n': key })));
@@ -53,7 +53,7 @@ function drawPlans(root, redraw) {
   localize(page);
 }
 
-// After paying, the provider sends the user back here; the webhook may land a moment later.
+// Robokassa sends the user back here (SuccessURL); its ResultURL notification may land a moment later.
 export function openBillingReturn(root) {
   let alive = true;
   const text = element('h1', { 'data-i18n': 'plans.checking' });

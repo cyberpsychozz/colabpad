@@ -42,7 +42,7 @@ to a stroke later (brought to life, destroyed, fossilized) is a separate append-
 | DB | **SQLite** (WAL), stdlib `sqlite3`, plain SQL in `app/repo/` | **the main process is the only DB writer**; the sim sends it snapshots and events |
 | Raster | **skia-python** | Python port of the client's `renderStroke` (same curves, caps and pressure width); golden test against a browser render |
 | Image / maths | **Pillow**, **numpy** | rig, bake, alpha trim, water outline, vectorized sim movement |
-| HTTP client | **httpx** | VLM, YooKassa |
+| HTTP client | **httpx** | VLM, Robokassa recurring charges |
 | Config | PyYAML + pydantic-settings | camelCase on the wire, snake_case in code |
 | Client | **Vanilla JS** (ES modules) + Vite + Canvas 2D + socket.io-client | no framework, no TypeScript |
 | Tests | pytest + pytest-asyncio; `node --test` for client modules; Playwright for the §12 scenarios (`npm run e2e`) | |
@@ -70,8 +70,9 @@ deploy/  host Nginx configs, certbot renew hook, backup.py
 **Flags** (`config/flags.yaml`; everything must boot with all of them off): `ads.enabled`
 (false), `billing.recurring` (false), `vlm.enabled` (true), `sleep_catchup` (true).
 
-**Secrets** come only from env vars (`.env`, documented in `.env.example`). YooKassa runs in
-**test mode** only: a secret key that does not start with `test_` is refused. The VLM has a
+**Secrets** come only from env vars (`.env`, documented in `.env.example`). Robokassa runs in
+**test mode** only: every request carries `IsTest=1` and is signed with the shop's *test*
+passwords (`ROBOKASSA_TEST_PASSWORD1/2`); Robokassa rejects production passwords in test mode. The VLM has a
 **daily budget cap** (`config/vlm.yaml`).
 
 ### Main ↔ simulation process
@@ -227,7 +228,7 @@ Accuracy is measured with `scripts/vlm_accuracy.py` over 81 drawings (target ≥
 - JSON is stored as TEXT
 - every enum gets a CHECK constraint
 - `PRAGMA foreign_keys=ON`
-- A database from another schema version (`PRAGMA user_version`) is refused at startup with a clear error. There are no migrations.
+- A database from another schema version (`PRAGMA user_version`) is refused at startup with a clear error. The one migration (`app/db.py`) takes version 2 to 3 (YooKassa → Robokassa): `payment` is renamed `payment_yookassa` and kept, `subscription.yk_payment_method_id` becomes an empty `parent_inv_id`, and everything else is untouched.
 
 ```sql
 CREATE TABLE app_user (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, display_name TEXT,
@@ -239,9 +240,11 @@ CREATE TABLE login_code (session_id TEXT PRIMARY KEY, email TEXT NOT NULL, local
   expires_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0);  -- one pending code per session
 CREATE TABLE subscription (id TEXT PRIMARY KEY, user_id TEXT UNIQUE NOT NULL REFERENCES app_user(id),
   plan TEXT CHECK (plan IN ('free','plus')), status TEXT CHECK (status IN ('active','past_due','canceled')),
-  current_period_end INTEGER, yk_payment_method_id TEXT);
+  current_period_end INTEGER, parent_inv_id INTEGER /* Robokassa invoice that renewals repeat */);
 CREATE TABLE payment (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES app_user(id),
-  yk_payment_id TEXT UNIQUE NOT NULL, amount_kop INTEGER NOT NULL, currency TEXT NOT NULL,
+  inv_id INTEGER UNIQUE NOT NULL CHECK (inv_id > 0) /* Robokassa InvId */, plan TEXT NOT NULL,
+  amount_kop INTEGER NOT NULL, currency TEXT NOT NULL,
+  recurring INTEGER NOT NULL DEFAULT 0 /* sent with Recurring=true */,
   status TEXT CHECK (status IN ('pending','succeeded','canceled')), created_at INTEGER NOT NULL);
 CREATE TABLE canvas (id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('world','private')),
   owner_user_id TEXT REFERENCES app_user(id), title TEXT,
@@ -288,7 +291,8 @@ CREATE TABLE metric (key TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0);
 **Rules:**
 - Effective role = owner ? `editor` : `max(link_role, member.role)`. If the canvas is frozen, every role is downgraded to `viewer`.
 - The shared world (`kind=world`, created at startup if missing) gives `editor` to everyone.
-- The YooKassa webhook is idempotent via `payment.yk_payment_id UNIQUE`.
+- Robokassa's ResultURL is idempotent via `payment.inv_id UNIQUE`: only a `pending` payment can settle.
+- Invoice numbers are ours: `max(last inv_id + 1, unix seconds)`, so they never repeat for the shop, even after a fresh database.
 
 **Retention** (daily pass, `app/retention.py`):
 - `alive_job` and raw VLM output: 30 days
@@ -407,8 +411,8 @@ Walk cycles can be reviewed without spending money: `scripts/vlm_accuracy.py --f
 | POST `/api/canvases/{id}/members` | owner | `{email, role}` → 201 (invite mail) |
 | PATCH / DELETE `/api/canvases/{id}/members/{userId}` | owner | `{role}` / — |
 | GET `/api/me/events?since=` | anyone | events (since unix ms) whose actors include an entity the caller's session or account brought to life, or a child of one; 100 per page, `next` for paging |
-| POST `/api/billing/checkout` | logged in | `{plan:"plus_month"\|"plus_year"}` → `{confirmationUrl}` |
-| POST `/api/billing/webhook` | YooKassa | **re-fetches the payment via the API before trusting it** + IP allowlist (`config/billing.yaml`) |
+| POST `/api/billing/checkout` | logged in | `{plan:"plus_month"\|"plus_year"}` → `{paymentUrl}` (a signed Robokassa link) |
+| GET / POST `/api/billing/result` | Robokassa | ResultURL (form fields `OutSum`, `InvId`, `SignatureValue`, `Shp_*`…) → `text/plain` `OK<InvId>`. **Trusted only if signed with password #2** + IP allowlist (`result_ips` in `config/billing.yaml`); bad signature → 400 |
 | POST `/api/billing/cancel` | logged in | → 200 (active until period end) |
 | POST `/api/metrics/{key}` | anyone | → 204 (whitelisted keys) |
 | GET `/api/health` | anyone | → `{ok:true}` |
@@ -468,12 +472,12 @@ Codes:
   5. Metrics: `adblock_gate_shown`, `adblock_gate_passed`, `plus_clicked`.
 - **Private worlds:** only the host needs Plus; guests on any plan can join.
 - **Freeze:** if the owner's subscription is `past_due` for more than 3 days, or `canceled` after the period end → `frozen=1`. The sim pauses and everyone becomes a viewer. Paying unfreezes immediately. Never delete. With `billing.recurring` off, a subscription whose period ends becomes `past_due`, so its worlds freeze after the 3-day grace.
-- **Billing (YooKassa test mode, via httpx, behind `app/billing/gateway.py`):**
-  1. `checkout` creates a payment of 299.00 RUB, or 2 490.00 RUB for a year, with `save_payment_method`, an Idempotence-Key and `metadata.userId`.
-  2. The user is redirected to `confirmation_url`, and comes back to `/billing/return`.
-  3. The `payment.succeeded` webhook arrives → `GET /v3/payments/{id}` → payment succeeded, subscription active, `period_end` extended.
-  4. A daily 03:00 MSK renewal task (asyncio background task) runs when `billing.recurring` is on. Failure → `past_due`.
-  5. Prices are **always in rubles**, in either UI language. Receipts come from «Чеки от ЮKassa».
+- **Billing (Robokassa test mode, behind `app/billing/gateway.py`; overview and history in [`billing.md`](billing.md)):**
+  1. `checkout` saves a `pending` payment with a new invoice number and returns a link to `https://auth.robokassa.ru/Merchant/Index.aspx` with `MerchantLogin`, `OutSum` (`299.00`, or `2490.00` for a year), `InvId`, `Description` and `Culture` in the user's language, `IsTest=1`, the fiscal `Receipt` (`config/billing.yaml`), `Recurring=true` when `billing.recurring` is on, and `SignatureValue = hash(MerchantLogin:OutSum:InvId[:Receipt]:Password#1)`. The Receipt is compact JSON, URL-encoded once in the signature and again in the link. The hash is the shop's (`ROBOKASSA_HASH`, MD5 by default).
+  2. The user pays on Robokassa's page and comes back to `/billing/return` (SuccessURL; it only shows the state) or `/plans` (FailURL).
+  3. Robokassa posts ResultURL → the signature `hash(OutSum:InvId:Password#2[:Shp_…])` is checked, `OutSum` must equal the invoice's amount (otherwise it is `canceled`) → payment succeeded, subscription active, `period_end` extended from the later of now and the current end → answer `OK<InvId>`. Robokassa's status API (OpStateExt) does not answer for test payments, so the signature is the proof.
+  4. When `billing.recurring` is on, a period that ends marks the subscription `past_due` and charges another month by `POST https://auth.robokassa.ru/Merchant/Recurring` (`InvoiceID` new, `PreviousInvoiceID` = the first invoice paid with `Recurring=true`, signed like the link). Robokassa reports the money at ResultURL, which makes the subscription active again; a refused charge cancels that invoice and the subscription stays `past_due`. The pass runs every minute (logged once a day at 03:00 MSK); a period is charged at most once.
+  5. Prices are **always in rubles**, in either UI language. Fiscal receipts are Robokassa's (the `Receipt` parameter).
 - **Auth:**
   - Sign-in by a 6-digit code sent by e-mail (`secrets.randbelow`), stored as SHA-256 of `session:code`, 15 min TTL, single use, 5 wrong guesses void it. A code works only in the browser session that asked for it; a new request replaces it.
   - The letter is text + HTML: a greeting, the code, what to do with it, what to do if you didn't ask. A named sender, `Date` and `Message-ID` headers. Without SMTP settings, mail is printed to the server log (`ConsoleMailer`).
@@ -559,7 +563,7 @@ forms in RU and one/other in EN; the table shows the RU one/few/many endings.
 - `/w` — shared world
 - `/p/{slug}` — private world
 - `/plans`
-- `/billing/return`
+- `/billing/return` — Robokassa's SuccessURL
 - legacy `/c/{id}` redirects to `/w`
 
 ---
@@ -589,7 +593,7 @@ and what wasn't: [`reports/scenario-run.md`](reports/scenario-run.md) and [`stat
 7. A cloud rains: the puddle grows and a fire goes out.
 8. An ambiguous drawing → chooser. With the VLM down (fake adapter) → manual grid, and it still comes alive.
 9. The 11th ALIVE for an anonymous user that day → `QUOTA_EXCEEDED` with the sign-in hint, in the right language and with correct Russian plurals.
-10. Sign in with an e-mailed code → buy Plus in YooKassa test mode (rubles in both languages) → ads disappear → create a private world → share it with role Player to a free account. The guest can pet and drive but not draw or ALIVE, and still sees ads.
+10. Sign in with an e-mailed code → buy Plus in Robokassa test mode (rubles in both languages) → ads disappear → create a private world → share it with role Player to a free account. The guest can pet and drive but not draw or ALIVE, and still sees ads.
 11. Expire the host's subscription → the world freezes for everyone → pay → it unfreezes.
 12. With `ads.enabled` and an adblocker on as a free user → the gate; turn it off → retry → the canvas opens. An empty ad fill doesn't trigger the gate.
 13. Killing the sim process mid-game → it restarts and the world resumes (≤ 5 s lost).

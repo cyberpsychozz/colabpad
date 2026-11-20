@@ -4,12 +4,17 @@
 // timings (a short fuse, a small anonymous quota, no pause between ALIVEs) and with the
 // VLM switched off, so every ALIVE goes through the manual type grid and nothing costs
 // money. The browser is the installed Google Chrome (no Playwright browser download).
+// Robokassa gets made-up test credentials; the scenarios stop the browser before it would
+// leave for Robokassa's page and post the ResultURL notification themselves (from 127.0.0.1,
+// which this copy of config/billing.yaml allows). The server's log goes to server.log in the
+// run's folder too, where the sign-in scenario reads the e-mailed code.
 import { defineConfig } from '@playwright/test';
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 export const PORT = 8030;
+export const ROBOKASSA = { login: 'collabpad-e2e', password1: 'e2e-test-one', password2: 'e2e-test-two' };
 
 // The config file is loaded by the runner and again by each worker: make the folder once.
 if (!process.env.E2E_DIR) {
@@ -29,6 +34,7 @@ if (!process.env.E2E_DIR) {
   edit('limits.yaml', /quota_per_day: \{anon: \d+/, 'quota_per_day: {anon: 2');
   edit('limits.yaml', /min_interval_s: \d+/, 'min_interval_s: 0');
   edit('balance.yaml', /fuse_s: \d+/, 'fuse_s: 4');
+  edit('billing.yaml', /result_ips:\n/, 'result_ips:\n  - 127.0.0.1\n');
   process.env.E2E_DIR = dir;
 }
 const DIR = process.env.E2E_DIR;
@@ -46,7 +52,7 @@ export default defineConfig({
     viewport: { width: 1100, height: 760 },
   },
   webServer: {
-    command: 'env -u PYTHONPATH .venv/bin/python -m app',
+    command: `env -u PYTHONPATH .venv/bin/python -m app 2>&1 | tee '${join(DIR, 'server.log')}' >&2`,
     cwd: ROOT,
     url: `http://127.0.0.1:${PORT}/api/health`,
     reuseExistingServer: false,
@@ -57,6 +63,10 @@ export default defineConfig({
       CONFIG_DIR: join(DIR, 'config'),
       VLM_API_KEY: '',
       SMTP_HOST: '',
+      ROBOKASSA_MERCHANT_LOGIN: ROBOKASSA.login,
+      ROBOKASSA_TEST_PASSWORD1: ROBOKASSA.password1,
+      ROBOKASSA_TEST_PASSWORD2: ROBOKASSA.password2,
+      ROBOKASSA_HASH: 'md5',
       PUBLIC_URL: `http://127.0.0.1:${PORT}`,
       CORS_ORIGINS: `http://127.0.0.1:${PORT}`,
     },
