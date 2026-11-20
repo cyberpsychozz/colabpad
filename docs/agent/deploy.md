@@ -250,8 +250,15 @@ only after the ad block ids are set and approved.
 sudo /opt/collabpad/deploy/update.sh
 ```
 
-It runs `git pull --ff-only`, rebuilds, recreates the containers and checks health. A
-restart drops every socket. Clients reconnect on their own, and the world resumes from the
+It runs `git pull --ff-only`, rebuilds, recreates the containers and checks health. Then it
+deletes old untagged images and Docker's build cache, and prints how much disk is free. Each
+build leaves a few hundred MB behind, and a full disk stops SQLite from opening the
+database (`disk I/O error` at startup). With less than 3 GiB free it also cleans up before the
+build. With less than 1 GiB free even after that, it stops without changing anything. It never
+touches volumes, where the database, the sprites and the backups live: don't run
+`docker system prune --volumes` or `docker volume prune` on this host.
+
+A restart drops every socket. Clients reconnect on their own, and the world resumes from the
 last snapshot (at most 5 s lost). Never run a second replica of `app`.
 
 If an update changes `deploy/nginx/collabpad.conf`, copy it again and reload Nginx:
