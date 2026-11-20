@@ -33,8 +33,12 @@ class Settings(BaseSettings):
     vlm_api_key: str = ""
     # HTTP proxy for the VLM calls only (e.g. a Tailscale exit-node proxy). Empty: direct.
     vlm_proxy_url: str = Field("", pattern=r"^(https?://\S+)?$")
-    yookassa_shop_id: str = ""
-    yookassa_secret_key: str = ""
+    # Robokassa shop identifier and the TEST passwords #1 and #2 from its technical settings.
+    robokassa_merchant_login: str = ""
+    robokassa_test_password1: str = ""
+    robokassa_test_password2: str = ""
+    # The signature hash chosen in the shop's technical settings.
+    robokassa_hash: str = Field("md5", pattern="^(md5|sha1|sha256|sha384|sha512)$")
     cors_origins: str = (
         "http://localhost:5173,http://127.0.0.1:5173,"
         "http://localhost:8000,http://127.0.0.1:8000"

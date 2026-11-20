@@ -1,15 +1,28 @@
-"""The payment provider behind an interface: YooKassa over httpx, and a fake for tests."""
+"""The payment provider behind an interface: Robokassa in test mode (docs/spec.md §9).
 
+Robokassa has no API call that creates a payment: the shop signs a link to its payment page
+with password #1, and Robokassa reports a paid invoice to ResultURL, signed with password #2.
+Its status API (OpStateExt) does not answer for test payments, so the ResultURL signature is
+the proof of payment.
+"""
+
+import hashlib
+import hmac
+import json
 import logging
+from collections.abc import Mapping
 from typing import Any, Protocol
-from uuid import uuid4
+from urllib.parse import quote, urlencode
 
 import httpx
 
 from app.errors import AppError
 
 logger = logging.getLogger(__name__)
-API = "https://api.yookassa.ru/v3"
+PAY_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
+RECURRING_URL = "https://auth.robokassa.ru/Merchant/Recurring"
+# The hash the shop's technical settings choose; the signature must use the same one.
+ALGORITHMS = ("md5", "sha1", "sha256", "sha384", "sha512")
 
 
 def rubles(amount_kop: int) -> str:
@@ -17,124 +30,127 @@ def rubles(amount_kop: int) -> str:
 
 
 def kopecks(value: str) -> int:
+    """Robokassa sends "299.00" in test mode and "299.000000" in production."""
     whole, _, cents = value.partition(".")
+    if not whole.isdigit() or (cents and not cents.isdigit()):
+        raise ValueError(value)
     return int(whole) * 100 + int((cents + "00")[:2])
 
 
 class Payments(Protocol):
-    async def create(self, order: dict[str, Any]) -> dict[str, Any]:
-        """order: amount_kop, currency, description, metadata, idempotence_key, and either
-        return_url (the user confirms on the provider's page) or payment_method_id (a renewal).
-        Returns {id, status, confirmation_url?}."""
+    def payment_url(self, order: dict[str, Any]) -> str:
+        """order: inv_id, amount_kop, description, culture, receipt (dict or None), recurring.
+        Returns the payment page the user is sent to."""
 
-    async def get(self, payment_id: str) -> dict[str, Any] | None:
-        """{id, status, amount_kop, currency, metadata, payment_method_id} or None."""
+    def verify(self, fields: Mapping[str, str]) -> dict[str, Any] | None:
+        """A ResultURL notification → {inv_id, amount_kop, shp}, or None if it is not signed
+        by the shop's password #2."""
+
+    async def charge(self, order: dict[str, Any]) -> bool:
+        """A recurring charge: inv_id, previous_inv_id, amount_kop, description, receipt.
+        True means Robokassa accepted it; the payment itself arrives later at ResultURL."""
 
 
 class UnconfiguredPayments:
-    async def create(self, order: dict[str, Any]) -> dict[str, Any]:
+    def payment_url(self, order: dict[str, Any]) -> str:
         raise AppError("PAYMENT_FAILED")
 
-    async def get(self, payment_id: str) -> dict[str, Any] | None:
+    def verify(self, fields: Mapping[str, str]) -> dict[str, Any] | None:
         return None
 
+    async def charge(self, order: dict[str, Any]) -> bool:
+        return False
 
-class YooKassa:
-    def __init__(self, http: httpx.AsyncClient, shop_id: str, secret_key: str) -> None:
-        self.http, self.auth = http, (shop_id, secret_key)
 
-    @staticmethod
-    def parse(body: dict[str, Any]) -> dict[str, Any]:
-        method = body.get("payment_method") or {}
-        return {
-            "id": body["id"],
-            "status": body["status"],
-            "amount_kop": kopecks(body["amount"]["value"]),
-            "currency": body["amount"]["currency"],
-            "metadata": body.get("metadata") or {},
-            "payment_method_id": method.get("id") if method.get("saved") else None,
-            "confirmation_url": (body.get("confirmation") or {}).get("confirmation_url"),
+def receipt_value(receipt: dict[str, Any] | None) -> str | None:
+    """The Receipt parameter: compact UTF-8 JSON, URL-encoded once. The signature uses this
+    exact string, and the request encodes it again as an ordinary parameter."""
+    if not receipt:
+        return None
+    return quote(json.dumps(receipt, ensure_ascii=False, separators=(",", ":")), safe="")
+
+
+class Robokassa:
+    """Test mode only: every request carries IsTest=1 and is signed with the test passwords.
+    (Production passwords are rejected by Robokassa in test mode, and test passwords in
+    production, so no setting here can move real money.)"""
+
+    def __init__(
+        self, http: httpx.AsyncClient, login: str, password1: str, password2: str, algorithm: str = "md5"
+    ) -> None:
+        if algorithm not in ALGORITHMS:
+            raise ValueError(f"Unsupported Robokassa hash: {algorithm}")
+        self.http, self.login = http, login
+        self.password1, self.password2, self.algorithm = password1, password2, algorithm
+
+    def sign(self, *parts: str) -> str:
+        return hashlib.new(self.algorithm, ":".join(parts).encode()).hexdigest()
+
+    def payment_url(self, order: dict[str, Any]) -> str:
+        out_sum, inv_id = rubles(order["amount_kop"]), str(order["inv_id"])
+        receipt = receipt_value(order.get("receipt"))
+        params = {
+            "MerchantLogin": self.login,
+            "OutSum": out_sum,
+            "InvId": inv_id,
+            "Description": order["description"][:100],
+            "Culture": order["culture"],
+            "Encoding": "utf-8",
+            "IsTest": "1",
         }
+        if receipt:
+            params["Receipt"] = receipt
+        if order.get("recurring"):
+            params["Recurring"] = "true"
+        modifiers = [receipt] if receipt else []
+        params["SignatureValue"] = self.sign(self.login, out_sum, inv_id, *modifiers, self.password1)
+        return f"{PAY_URL}?{urlencode(params)}"
 
-    async def create(self, order: dict[str, Any]) -> dict[str, Any]:
-        body: dict[str, Any] = {
-            "amount": {"value": rubles(order["amount_kop"]), "currency": order["currency"]},
-            "capture": True,
-            "description": order["description"],
-            "metadata": order["metadata"],
-        }
-        if order.get("payment_method_id"):
-            body["payment_method_id"] = order["payment_method_id"]
-        else:
-            body["confirmation"] = {"type": "redirect", "return_url": order["return_url"]}
-            body["save_payment_method"] = True
+    def verify(self, fields: Mapping[str, str]) -> dict[str, Any] | None:
+        out_sum, inv_id, signature = (fields.get(k) for k in ("OutSum", "InvId", "SignatureValue"))
+        if not (out_sum and inv_id and signature):
+            return None
+        # Shp_ parameters come back as they were sent, signed in alphabetical order.
+        shp = {key: value for key, value in sorted(fields.items()) if key.startswith("Shp_")}
+        expected = self.sign(out_sum, inv_id, self.password2, *(f"{k}={v}" for k, v in shp.items()))
+        if not hmac.compare_digest(expected, signature.lower()):
+            return None
         try:
-            response = await self.http.post(
-                f"{API}/payments",
-                json=body,
-                auth=self.auth,
-                headers={"Idempotence-Key": order["idempotence_key"]},
-                timeout=15,
-            )
-            response.raise_for_status()
-            return self.parse(response.json())
-        except (httpx.HTTPError, KeyError, ValueError) as exc:
-            logger.warning("Payment creation failed: %s", type(exc).__name__)
-            raise AppError("PAYMENT_FAILED") from None
+            amount_kop, number = kopecks(out_sum), int(inv_id)
+        except ValueError:
+            return None
+        return {"inv_id": number, "amount_kop": amount_kop, "shp": shp} if number > 0 else None
 
-    async def get(self, payment_id: str) -> dict[str, Any] | None:
-        try:
-            response = await self.http.get(f"{API}/payments/{payment_id}", auth=self.auth, timeout=15)
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
-            return self.parse(response.json())
-        except (httpx.HTTPError, KeyError, ValueError) as exc:
-            logger.warning("Payment lookup failed: %s", type(exc).__name__)
-            raise AppError("PAYMENT_FAILED") from None
-
-
-class FakePayments:
-    """Payments stay pending until a test settles them with pay() or decline()."""
-
-    def __init__(self, renewals_succeed: bool = True) -> None:
-        self.payments: dict[str, dict[str, Any]] = {}
-        self.by_key: dict[str, str] = {}
-        self.renewals_succeed = renewals_succeed
-
-    async def create(self, order: dict[str, Any]) -> dict[str, Any]:
-        if order["idempotence_key"] in self.by_key:
-            return self.payments[self.by_key[order["idempotence_key"]]]
-        payment_id = f"fake-{uuid4().hex[:12]}"
-        renewal = bool(order.get("payment_method_id"))
-        payment = {
-            "id": payment_id,
-            "status": ("succeeded" if self.renewals_succeed else "canceled") if renewal else "pending",
-            "amount_kop": order["amount_kop"],
-            "currency": order["currency"],
-            "metadata": order["metadata"],
-            "payment_method_id": order.get("payment_method_id"),
-            "confirmation_url": None if renewal else f"https://pay.example/confirm/{payment_id}",
+    async def charge(self, order: dict[str, Any]) -> bool:
+        out_sum, inv_id = rubles(order["amount_kop"]), str(order["inv_id"])
+        receipt = receipt_value(order.get("receipt"))
+        data = {
+            "MerchantLogin": self.login,
+            "InvoiceID": inv_id,
+            "PreviousInvoiceID": str(order["previous_inv_id"]),
+            "OutSum": out_sum,
+            "Description": order["description"][:100],
+            "IsTest": "1",
         }
-        self.payments[payment_id] = payment
-        self.by_key[order["idempotence_key"]] = payment_id
-        return payment
+        if receipt:
+            data["Receipt"] = receipt
+        modifiers = [receipt] if receipt else []
+        data["SignatureValue"] = self.sign(self.login, out_sum, inv_id, *modifiers, self.password1)
+        try:
+            response = await self.http.post(RECURRING_URL, data=data, timeout=15)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Recurring charge failed: %s", type(exc).__name__)
+            return False
+        accepted = response.text.strip().startswith("OK")
+        if not accepted:
+            logger.warning("Recurring charge refused: %s", response.text.strip()[:200])
+        return accepted
 
-    async def get(self, payment_id: str) -> dict[str, Any] | None:
-        return self.payments.get(payment_id)
 
-    def pay(self, payment_id: str) -> None:
-        self.payments[payment_id].update(status="succeeded", payment_method_id=f"method-{payment_id}")
-
-    def decline(self, payment_id: str) -> None:
-        self.payments[payment_id]["status"] = "canceled"
-
-
-def build_payments(http: httpx.AsyncClient, shop_id: str, secret_key: str) -> Payments:
-    if not shop_id or not secret_key:
+def build_payments(
+    http: httpx.AsyncClient, login: str, password1: str, password2: str, algorithm: str = "md5"
+) -> Payments:
+    if not (login and password1 and password2):
         return UnconfiguredPayments()
-    if not secret_key.startswith("test_"):
-        # Ground rule: no real money. A live key is refused, not used.
-        logger.error("YOOKASSA_SECRET_KEY is not a test key; billing is disabled")
-        return UnconfiguredPayments()
-    return YooKassa(http, shop_id, secret_key)
+    return Robokassa(http, login, password1, password2, algorithm)

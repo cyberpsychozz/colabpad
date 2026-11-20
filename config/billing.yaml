@@ -1,16 +1,22 @@
-# ЮKassa, test mode only. Prices are always in rubles (kopecks here).
+# Subscriptions and payments (docs/spec.md §9).
+# Robokassa, test mode only. Prices are always in rubles (kopecks here).
 currency: RUB
 plans:
   plus_month: {amount_kop: 29900, period_days: 30}
   plus_year: {amount_kop: 249000, period_days: 365}
 past_due_grace_days: 3
 renewal_hour_msk: 3
-# The webhook is accepted only from ЮKassa's notification addresses.
-webhook_ips:
-  - 185.71.76.0/27
-  - 185.71.77.0/27
-  - 77.75.153.0/25
-  - 77.75.154.128/25
-  - 77.75.156.11
-  - 77.75.156.35
-  - 2a02:5180::/32
+# The fiscal receipt (54-FZ) sent with each payment as Robokassa's Receipt parameter.
+# sno: the shop's tax system (osn, usn_income, usn_income_outcome, esn, patent); empty means
+# the default from the Robokassa cabinet. tax: none, vat0, vat5, vat7, vat10, vat20, vat22, ...
+# Turn it off only if the shop is not connected to Robokassa's fiscalization.
+receipt:
+  enabled: true
+  sno:
+  tax: none
+  payment_method: full_payment
+  payment_object: service
+# ResultURL is accepted only from Robokassa's notification addresses.
+result_ips:
+  - 185.59.216.65
+  - 185.59.217.65

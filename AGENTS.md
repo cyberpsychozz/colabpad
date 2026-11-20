@@ -14,6 +14,7 @@ Canvas 2D on the client, RU + EN.
 | [`docs/status.md`](docs/status.md) | what is not done, not verified, and open questions. Keep it current |
 | [`docs/development.md`](docs/development.md) | running locally (Docker or `.venv`) and the checks |
 | [`docs/deploy.md`](docs/deploy.md) | production deploy, for the human only |
+| [`docs/billing.md`](docs/billing.md) | how payments work (Robokassa, test mode), the 2 → 3 schema migration, what is left to do |
 | `docs/reports/` | load test, VLM accuracy and browser scenario runs |
 | `docs/background/` | the original TZ and business case (Russian, .docx) |
 
@@ -29,7 +30,7 @@ If anything is unclear or contradicts reality, **stop and ask the human**.
    push to the `deploy` branch**: a push there deploys to production through GitHub Actions
    (`.github/workflows/deploy.yml`). Deploying and wiping the production DB are human steps,
    written down in `docs/deploy.md`. Deploys use **Docker Compose only**.
-4. **No real money, no live keys.** YooKassa in test mode only; keys only from env vars
+4. **No real money, no live keys.** Robokassa in test mode only (`IsTest=1`, test passwords); keys only from env vars
    (add `.env.example` entries, never commit secrets); the VLM has a daily budget cap.
 5. **Bilingual.** Every user-facing string goes through the catalogs (`web/src/i18n/`,
    `app/i18n/`) in Russian and English with identical keys; a test fails otherwise. Never

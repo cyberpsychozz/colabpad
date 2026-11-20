@@ -103,7 +103,7 @@ def test_only_the_vlm_goes_through_vlm_proxy_url(tmp_path: Path) -> None:
     settings = Settings(
         _env_file=None, data_dir=tmp_path / "data", config_dir=directory,
         vlm_api_key="k", vlm_proxy_url=f"http://127.0.0.1:{server.server_port}",
-        yookassa_shop_id="1", yookassa_secret_key="test_x",
+        robokassa_merchant_login="shop", robokassa_test_password1="p1", robokassa_test_password2="p2",
     )  # fmt: skip
     app = create_app(settings)
     try:

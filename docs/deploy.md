@@ -24,7 +24,7 @@ or Node: the image builds the frontend and runs the client tests during `docker 
 |---|---|---|
 | SMTP mailbox for sign-in codes (implicit TLS, port 465) | `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASSWORD` | sign-in codes are written to the container log instead of being mailed. **Don't run production like that**: anyone who can read the log can sign in as anyone. |
 | OpenRouter key | `VLM_API_KEY` | ALIVE still works: the author picks the type from a grid. Daily spend cap: `daily_budget_usd` in `config/vlm.yaml`. |
-| YooKassa **test** shop: shop id and a secret key that starts with `test_` | `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY` | checkout answers "Payment failed". A key not starting with `test_` is refused on purpose. |
+| Robokassa shop: its identifier and the **test** passwords #1 and #2 (Technical settings → test mode), and the hash algorithm set there | `ROBOKASSA_MERCHANT_LOGIN`, `ROBOKASSA_TEST_PASSWORD1`, `ROBOKASSA_TEST_PASSWORD2`, `ROBOKASSA_HASH` | checkout answers "Payment failed". Every payment is sent with `IsTest=1`; production passwords fail there on purpose. |
 | Yandex Advertising Network block ids `R-A-…` | `ADS_BLOCK_SIDE`, `ADS_BLOCK_BOTTOM` | no ads. Ads also need `ads.enabled: true` in `config/flags.yaml`. |
 | Tailscale (optional): an exit node, plus a **reusable, tagged** auth key whose tag may use exit nodes (`autogroup:internet`) | `TS_AUTHKEY`, `TS_EXIT_NODE` | the VLM is called directly from the server's IP |
 
@@ -80,8 +80,10 @@ SMTP_FROM=...
 SMTP_USER=...
 SMTP_PASSWORD=...
 VLM_API_KEY=...
-YOOKASSA_SHOP_ID=...
-YOOKASSA_SECRET_KEY=test_...
+ROBOKASSA_MERCHANT_LOGIN=...
+ROBOKASSA_TEST_PASSWORD1=...
+ROBOKASSA_TEST_PASSWORD2=...
+ROBOKASSA_HASH=md5
 ```
 
 With the Tailscale VLM proxy, also set the following. `COMPOSE_PROFILES` makes every plain
@@ -125,13 +127,13 @@ sudo docker compose exec app python -c "import httpx; print(httpx.get('https://i
 ```
 
 The app ignores `HTTPS_PROXY`/`ALL_PROXY` on purpose, so only the VLM ever uses the proxy,
-never YooKassa or mail. If the exit node is down, ALIVE falls back to the manual type grid.
+never Robokassa or mail. If the exit node is down, ALIVE falls back to the manual type grid.
 
 ## 6. Trust Nginx's forwarded addresses
 
 To the app, the host's Nginx shows up as the Docker network's gateway address. The app has
-to trust `X-Forwarded-For` from that address. Otherwise the YooKassa webhook allowlist sees
-the gateway instead of YooKassa and rejects payment notifications. Get the gateway:
+to trust `X-Forwarded-For` from that address. Otherwise the Robokassa ResultURL allowlist sees
+the gateway instead of Robokassa and rejects payment notifications. Get the gateway:
 
 ```bash
 sudo docker network inspect collabpad_default --format '{{(index .IPAM.Config 0).Gateway}}'
@@ -216,19 +218,27 @@ curl -sI http://colabpad.ru/ | grep -i location
 
 The second should show `https://collabpad.ru/?utm_medium=typo_colabpad`.
 
-## 9. YooKassa test shop
+## 9. Robokassa (test mode)
 
-In the YooKassa dashboard of the **test** shop → Integration → HTTP notifications:
+In the Robokassa cabinet, the shop → Technical settings:
 
-- URL: `https://collabpad.ru/api/billing/webhook`
-- Events: `payment.succeeded`, `payment.canceled`
+- Algorithm of the hash: whatever you pick, put the same in `ROBOKASSA_HASH` (MD5 by default).
+- Result URL: `https://collabpad.ru/api/billing/result`, method **POST**.
+- Success URL: `https://collabpad.ru/billing/return`, method **GET**.
+- Fail URL: `https://collabpad.ru/plans`, method **GET**.
+- The test-mode passwords #1 and #2 go into `.env` (step 1). Never the production ones.
 
-The app accepts notifications only from YooKassa's addresses (`webhook_ips` in
-`config/billing.yaml`), which is why step 6 matters. It never trusts the notification body:
-it fetches the payment from YooKassa by id first.
+The app accepts ResultURL only from Robokassa's addresses (`result_ips` in
+`config/billing.yaml`), which is why step 6 matters, and only if it is signed with password #2.
+Robokassa's status API does not answer for test payments, so the signature is the proof.
 
-Check: sign in, open `/plans`, pay with a YooKassa test card for a successful payment (their
-"Testing" docs list them). You come back to `/billing/return`, and the plan shows as active.
+Fiscal receipts: `receipt` in `config/billing.yaml` sends a 54-FZ receipt with every payment
+(tax `none`, the cabinet's default tax system). Set `sno` and `tax` to the shop's, or
+`enabled: false` if the shop is not connected to Robokassa's fiscalization.
+
+Check: sign in, open `/plans`, pay with Robokassa's test payment method. You come back to
+`/billing/return`, and the plan shows as active. Error 29 on Robokassa's page means a
+signature mismatch: wrong passwords, a different hash, or the receipt (see `docs/status.md`).
 
 ## 10. Flags
 
@@ -236,7 +246,7 @@ Check: sign in, open `/plans`, pay with a YooKassa test card for a successful pa
 
 ```yaml
 ads: {enabled: false}         # true: ad banners and the ad-blocker gate for free plans
-billing: {recurring: false}   # true: the 03:00 MSK auto-renewal charges saved cards
+billing: {recurring: false}   # true: monthly auto-renewal via Robokassa's recurring payments (needs their approval)
 vlm: {enabled: true}          # false: always the manual type grid
 sleep_catchup: true
 ```

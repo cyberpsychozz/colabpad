@@ -1,6 +1,10 @@
 // docs/spec.md §12 in two browser clients: A reads English, B reads Russian.
 // Each test works in its own part of the shared world (the camera is set by the URL).
 import { expect, test } from '@playwright/test';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { ROBOKASSA } from '../playwright.config.js';
 
 const ALIVE = /^(ALIVE|ОЖИВИ)$/;
 const TOOL = {
@@ -200,4 +204,64 @@ test('switching RU ↔ EN changes every visible string, the page language and th
   // Only the brand, the language switch and colour codes stay Latin.
   expect(ru.replace(/collab|pad|CollabPad|RU|EN|#[0-9A-F]{6}/g, '')).not.toMatch(/[a-z]{2,}/i);
   await c.context.close();
+});
+
+// §12.10, the payment part: Robokassa itself is never contacted. The browser is stopped on its
+// way to Robokassa's page, and the test posts the signed ResultURL notice Robokassa would send.
+const md5 = text => createHash('md5').update(text).digest('hex');
+const PAY_PAGE = 'https://auth.robokassa.ru/Merchant/Index.aspx';
+
+async function signIn(page, email) {
+  await page.locator('#account-email').fill(email);
+  await page.locator('#account-consent').check();
+  await page.locator('form button[type=submit]').click();
+  await expect(page.locator('#account-code')).toBeVisible();
+  // No SMTP in the e2e server: the letter is in the server's log.
+  const log = join(process.env.E2E_DIR, 'server.log');
+  let code;
+  await expect.poll(() => {
+    const text = readFileSync(log, 'utf8');
+    const letter = text.slice(text.lastIndexOf(`Mail to ${email}`));
+    code = letter.startsWith('Mail to') ? letter.match(/\b(\d{6})\b/)?.[1] : undefined;
+    return code;
+  }).toBeTruthy();
+  await Promise.all([page.waitForEvent('load'), page.locator('#account-code').fill(code)]);
+}
+
+test('buying Plus sends a signed test-mode Robokassa link; its ResultURL notice makes Plus active, in rubles in both languages', async ({ browser, request }) => {
+  // A buys a month in English, B a year in Russian. Prices are rubles in both.
+  const buyers = [['en-US', 'en', /^Month — /, '299.00', /Done! Plus is active until/, /Payment goes through Robokassa/, /₽299 a month/],
+                  ['ru-RU', 'ru', /^Год — /, '2490.00', /Готово! «Плюс» активен до/, /Оплата проходит через Robokassa/, /299\s₽\sв месяц/]];
+  for (const [locale, culture, button, outSum, active, note, price] of buyers) {
+    const context = await browser.newContext({ locale });
+    const page = await context.newPage();
+    let payment;
+    await page.route('https://auth.robokassa.ru/**', route => {
+      payment = new URL(route.request().url());
+      return route.fulfill({ contentType: 'text/html', body: '<title>Robokassa (stub)</title>' });
+    });
+    await page.goto('/plans');
+    await expect(page.getByText(note)).toBeVisible();
+    await expect(page.getByText(price)).toBeVisible();
+    await page.getByRole('button', { name: button }).click();  // not signed in: the account dialog
+    await signIn(page, `buyer-${culture}-${Date.now()}@example.org`);
+    await page.getByRole('button', { name: button }).click();
+    await expect.poll(() => payment?.href).toBeTruthy();
+
+    const link = Object.fromEntries(payment.searchParams);
+    expect(payment.origin + payment.pathname).toBe(PAY_PAGE);
+    expect(link).toMatchObject({ MerchantLogin: ROBOKASSA.login, OutSum: outSum, IsTest: '1', Culture: culture });
+    expect(link.SignatureValue).toBe(md5(`${ROBOKASSA.login}:${outSum}:${link.InvId}:${link.Receipt}:${ROBOKASSA.password1}`));
+
+    // Robokassa → ResultURL. A notice not signed with password #2 is refused.
+    const forged = await request.post('/api/billing/result', { form: { OutSum: outSum, InvId: link.InvId, SignatureValue: md5(`${outSum}:${link.InvId}:${ROBOKASSA.password1}`) } });
+    expect(forged.status()).toBe(400);
+    const result = await request.post('/api/billing/result', { form: { OutSum: outSum, InvId: link.InvId, SignatureValue: md5(`${outSum}:${link.InvId}:${ROBOKASSA.password2}`).toUpperCase() } });
+    expect(await result.text()).toBe(`OK${link.InvId}`);
+
+    // Robokassa → SuccessURL: back on the site, Plus is active.
+    await page.goto(`/billing/return?OutSum=${outSum}&InvId=${link.InvId}&Culture=${culture}`);
+    await expect(page.getByText(active)).toBeVisible();
+    await context.close();
+  }
 });

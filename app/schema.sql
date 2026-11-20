@@ -25,15 +25,19 @@ CREATE TABLE IF NOT EXISTS subscription (
     plan TEXT CHECK (plan IN ('free','plus')),
     status TEXT CHECK (status IN ('active','past_due','canceled')),
     current_period_end INTEGER,
-    yk_payment_method_id TEXT
+    -- Robokassa: the paid invoice (sent with Recurring=true) that renewals repeat.
+    parent_inv_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS payment (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES app_user(id),
-    yk_payment_id TEXT UNIQUE NOT NULL,
+    -- Robokassa's InvId: chosen by us, never reused.
+    inv_id INTEGER UNIQUE NOT NULL CHECK (inv_id > 0),
+    plan TEXT NOT NULL,
     amount_kop INTEGER NOT NULL,
     currency TEXT NOT NULL,
+    recurring INTEGER NOT NULL DEFAULT 0 CHECK (recurring IN (0,1)),
     status TEXT CHECK (status IN ('pending','succeeded','canceled')),
     created_at INTEGER NOT NULL
 );

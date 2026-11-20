@@ -163,7 +163,7 @@
   "plans.cancel": "Cancel the subscription",
   "plans.redirecting": "Taking you to the payment page…",
   "plans.checking": "Checking the payment…",
-  "plans.note": "Payment goes through YooKassa. Prices are in Russian rubles. If a subscription ends, private worlds are paused, never deleted.",
+  "plans.note": "Payment goes through Robokassa. Prices are in Russian rubles. If a subscription ends, private worlds are paused, never deleted.",
   "err.WORLD_LIMIT": "You've reached the limit of {limit}",
   "err.CODE_INVALID": "Wrong code. Tries left: {left}",
   "err.CODE_EXPIRED": "This code has expired or run out of tries — request a new one"
