@@ -22,9 +22,13 @@ services:
       VLM_API_KEY: "${VLM_API_KEY:-}"
       # Set to http://vlm-egress:1055 to send only the VLM calls through Tailscale.
       VLM_PROXY_URL: "${VLM_PROXY_URL:-}"
+      # test (default) or live: live moves real money with the production passwords.
+      ROBOKASSA_MODE: "${ROBOKASSA_MODE:-test}"
       ROBOKASSA_MERCHANT_LOGIN: "${ROBOKASSA_MERCHANT_LOGIN:-}"
       ROBOKASSA_TEST_PASSWORD1: "${ROBOKASSA_TEST_PASSWORD1:-}"
       ROBOKASSA_TEST_PASSWORD2: "${ROBOKASSA_TEST_PASSWORD2:-}"
+      ROBOKASSA_PASSWORD1: "${ROBOKASSA_PASSWORD1:-}"
+      ROBOKASSA_PASSWORD2: "${ROBOKASSA_PASSWORD2:-}"
       ROBOKASSA_HASH: "${ROBOKASSA_HASH:-md5}"
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:1744,http://127.0.0.1:1744}"
       FORWARDED_ALLOW_IPS: "${COLLABPAD_FORWARDED_ALLOW_IPS:-127.0.0.1}"

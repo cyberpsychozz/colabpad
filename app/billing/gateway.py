@@ -1,9 +1,10 @@
-"""The payment provider behind an interface: Robokassa in test mode (docs/spec.md §9).
+"""The payment provider behind an interface: Robokassa, in test or live mode (docs/spec.md §9).
 
 Robokassa has no API call that creates a payment: the shop signs a link to its payment page
 with password #1, and Robokassa reports a paid invoice to ResultURL, signed with password #2.
 Its status API (OpStateExt) does not answer for test payments, so the ResultURL signature is
-the proof of payment.
+the proof of payment. Test mode (the default) sends IsTest=1 and uses the shop's test
+passwords; live mode moves real money and is switched on only by ROBOKASSA_MODE=live.
 """
 
 import hashlib
@@ -71,16 +72,17 @@ def receipt_value(receipt: dict[str, Any] | None) -> str | None:
 
 
 class Robokassa:
-    """Test mode only: every request carries IsTest=1 and is signed with the test passwords.
-    (Production passwords are rejected by Robokassa in test mode, and test passwords in
-    production, so no setting here can move real money.)"""
+    """In test mode every request carries IsTest=1 and must be signed with the test passwords;
+    in live mode it carries no IsTest and must be signed with the production passwords.
+    (Robokassa rejects production passwords in test mode and test passwords in live mode.)"""
 
     def __init__(
-        self, http: httpx.AsyncClient, login: str, password1: str, password2: str, algorithm: str = "md5"
-    ) -> None:
+        self, http: httpx.AsyncClient, login: str, password1: str, password2: str, algorithm: str = "md5",
+        *, test: bool = True,
+    ) -> None:  # fmt: skip
         if algorithm not in ALGORITHMS:
             raise ValueError(f"Unsupported Robokassa hash: {algorithm}")
-        self.http, self.login = http, login
+        self.http, self.login, self.test = http, login, test
         self.password1, self.password2, self.algorithm = password1, password2, algorithm
 
     def sign(self, *parts: str) -> str:
@@ -96,8 +98,9 @@ class Robokassa:
             "Description": order["description"][:100],
             "Culture": order["culture"],
             "Encoding": "utf-8",
-            "IsTest": "1",
         }
+        if self.test:
+            params["IsTest"] = "1"
         if receipt:
             params["Receipt"] = receipt
         if order.get("recurring"):
@@ -130,8 +133,9 @@ class Robokassa:
             "PreviousInvoiceID": str(order["previous_inv_id"]),
             "OutSum": out_sum,
             "Description": order["description"][:100],
-            "IsTest": "1",
         }
+        if self.test:
+            data["IsTest"] = "1"
         if receipt:
             data["Receipt"] = receipt
         modifiers = [receipt] if receipt else []
@@ -149,8 +153,12 @@ class Robokassa:
 
 
 def build_payments(
-    http: httpx.AsyncClient, login: str, password1: str, password2: str, algorithm: str = "md5"
-) -> Payments:
+    http: httpx.AsyncClient, login: str, password1: str, password2: str, algorithm: str = "md5",
+    *, test: bool = True,
+) -> Payments:  # fmt: skip
+    mode = "test" if test else "live"
     if not (login and password1 and password2):
+        logger.warning("Robokassa (%s mode) is not configured: checkout is off", mode)
         return UnconfiguredPayments()
-    return Robokassa(http, login, password1, password2, algorithm)
+    logger.info("Robokassa: %s mode", mode)
+    return Robokassa(http, login, password1, password2, algorithm, test=test)
