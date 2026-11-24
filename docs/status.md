@@ -20,6 +20,9 @@ Test runs: [`reports/`](reports/).
   - the signature of a recurring child charge is not spelled out; we sign it like the link.
   - recurring charges need Robokassa's approval for the shop, and the docs don't say whether
     they work in test mode. `billing.recurring` stays off until both are known.
+- Robokassa **live mode** (`ROBOKASSA_MODE=live`, [`billing.md`](billing.md)): pytest checks the
+  link, ResultURL and recurring request without `IsTest` and with the production passwords; a
+  real payment in live mode, and its «Мой налог» receipt, have not been seen yet.
 - Real SMTP delivery.
 - Real РСЯ banners in the four slots (§12.15): the layout and the render calls are checked in
   the browser against a stub loader; whether block `R-A-20462150-1` fills a 216–300 px wide,

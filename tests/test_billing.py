@@ -1,4 +1,4 @@
-"""T21: Robokassa in test mode: checkout link, ResultURL, cancel, renewal, freeze, migration."""
+"""T21: Robokassa in test and live mode: checkout link, ResultURL, cancel, renewal, freeze, migration."""
 
 import asyncio
 import hashlib
@@ -17,7 +17,9 @@ from fastapi.testclient import TestClient
 from app.billing.gateway import (
     PAY_URL, RECURRING_URL, Robokassa, UnconfiguredPayments, build_payments, kopecks, rubles,
 )  # fmt: skip
+from app.config import Settings
 from app.db import connect
+from app.main import create_app, create_asgi
 from app.i18n import translate
 from tests.accounts import DAY, browser, set_clock, sign_in
 
@@ -266,11 +268,68 @@ def test_unconfigured_billing_fails_cleanly(application: FastAPI, client: TestCl
     assert application.state.repo.db.execute("SELECT count(*) FROM payment").fetchone()[0] == 0
 
 
+def live_settings(tmp_path: Path, **changes: Any) -> Settings:
+    values: dict[str, Any] = {
+        "data_dir": tmp_path, "robokassa_mode": "live", "robokassa_merchant_login": LOGIN,
+        "robokassa_test_password1": "test-one", "robokassa_test_password2": "test-two",
+        "robokassa_password1": "live-one", "robokassa_password2": "live-two",
+    }  # fmt: skip
+    return Settings(_env_file=None, **{**values, **changes})
+
+
+def test_settings_pick_the_password_pair_for_the_mode(tmp_path: Path) -> None:
+    test = Settings(_env_file=None, robokassa_test_password1="t1", robokassa_test_password2="t2",
+                    robokassa_password1="l1", robokassa_password2="l2")  # fmt: skip
+    assert (test.robokassa_mode, test.robokassa_passwords) == ("test", ("t1", "t2"))
+    assert live_settings(tmp_path).robokassa_passwords == ("live-one", "live-two")
+    for bad in ("LIVE", "prod", "production", ""):
+        with pytest.raises(ValueError):
+            Settings(_env_file=None, robokassa_mode=bad)
+    # Live mode never falls back to the test passwords: without its own pair, checkout is off.
+    app = create_app(live_settings(tmp_path, robokassa_password1="", robokassa_password2=""))
+    with TestClient(create_asgi(app)):
+        assert isinstance(app.state.billing.payments, UnconfiguredPayments)
+
+
+def test_live_mode_takes_real_payments_with_the_production_passwords(tmp_path: Path) -> None:
+    app = create_app(live_settings(tmp_path))
+    with TestClient(create_asgi(app)) as client:
+        payments = app.state.billing.payments
+        assert isinstance(payments, Robokassa) and not payments.test
+        endpoint = RecurringEndpoint()
+        payments.http = httpx.AsyncClient(transport=httpx.MockTransport(endpoint))
+        now = {"t": 1_800_000_000.0}
+        set_clock(app, now)
+        app.state.config.billing["result_ips"] = ["testclient"]
+        app.state.config.flags.billing.recurring = True
+        app.state.realtime.frozen = AsyncMock()
+        user = sign_in(app, client, "host@example.org")
+
+        link = checkout(client)
+        assert "IsTest" not in link
+        assert link["SignatureValue"] == md5(f"{LOGIN}:299.00:{link['InvId']}:{link['Receipt']}:live-one")
+        # A notice signed with the test password #2 is not proof of a real payment.
+        assert client.post(RESULT, data=notification(link["InvId"], password="test-two")).status_code == 400
+        # Production sends amounts with six decimals.
+        paid = client.post(RESULT, data=notification(link["InvId"], "299.000000", password="live-two"))
+        assert paid.text == f"OK{link['InvId']}"
+        assert client.get("/api/me").json()["plan"] == "plus"
+
+        now["t"] += 30 * DAY + 60
+        asyncio.run(app.state.billing.sweep())
+        charge = endpoint.requests[0]
+        assert "IsTest" not in charge
+        assert charge["SignatureValue"] == md5(f"{LOGIN}:299.00:{charge['InvoiceID']}:{charge['Receipt']}:live-one")
+        assert app.state.repo.get_subscription(user["id"])["status"] == "past_due"
+
+
 def test_gateway_settings_signatures_and_amounts() -> None:
     http = httpx.AsyncClient()
     assert isinstance(build_payments(http, "", "", ""), UnconfiguredPayments)
     assert isinstance(build_payments(http, "shop", "p1", ""), UnconfiguredPayments)
     assert isinstance(build_payments(http, "shop", "p1", "p2", "sha256"), Robokassa)
+    assert build_payments(http, "shop", "p1", "p2").test  # test mode unless asked otherwise
+    assert not build_payments(http, "shop", "p1", "p2", test=False).test
     with pytest.raises(ValueError):
         Robokassa(http, "shop", "p1", "p2", "crc32")
     sha = Robokassa(http, "shop", "p1", "p2", "sha256")

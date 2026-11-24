@@ -33,10 +33,14 @@ class Settings(BaseSettings):
     vlm_api_key: str = ""
     # HTTP proxy for the VLM calls only (e.g. a Tailscale exit-node proxy). Empty: direct.
     vlm_proxy_url: str = Field("", pattern=r"^(https?://\S+)?$")
-    # Robokassa shop identifier and the TEST passwords #1 and #2 from its technical settings.
+    # Robokassa: the shop identifier, and "test" (IsTest=1, the test passwords #1 and #2) or
+    # "live" (real money, the production passwords #1 and #2). Each mode reads only its own pair.
+    robokassa_mode: str = Field("test", pattern="^(test|live)$")
     robokassa_merchant_login: str = ""
     robokassa_test_password1: str = ""
     robokassa_test_password2: str = ""
+    robokassa_password1: str = ""
+    robokassa_password2: str = ""
     # The signature hash chosen in the shop's technical settings.
     robokassa_hash: str = Field("md5", pattern="^(md5|sha1|sha256|sha384|sha512)$")
     cors_origins: str = (
@@ -72,6 +76,13 @@ class Settings(BaseSettings):
     @property
     def colors(self) -> list[str]:
         return [color.strip() for color in self.palette.split(",") if color.strip()]
+
+    @property
+    def robokassa_passwords(self) -> tuple[str, str]:
+        """Passwords #1 and #2 for the current mode: test mode never sees the live ones."""
+        if self.robokassa_mode == "live":
+            return self.robokassa_password1, self.robokassa_password2
+        return self.robokassa_test_password1, self.robokassa_test_password2
 
     @property
     def sprites_dir(self) -> Path:
