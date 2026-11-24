@@ -161,8 +161,8 @@ def create_app(
         billing = application.state.billing = Billing(
             settings, config, lambda: application.state.repo,
             payments or build_payments(
-                http, settings.robokassa_merchant_login, settings.robokassa_test_password1,
-                settings.robokassa_test_password2, settings.robokassa_hash,
+                http, settings.robokassa_merchant_login, *settings.robokassa_passwords,
+                settings.robokassa_hash, test=settings.robokassa_mode != "live",
             ),
             application.state.realtime, sim,
         )  # fmt: skip

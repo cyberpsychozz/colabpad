@@ -6,9 +6,15 @@ the cabinet setup is in [`deploy.md`](deploy.md) (step 9), and the open points a
 [`status.md`](status.md). Code: `app/billing/` (`gateway.py` speaks Robokassa, `service.py` holds
 the subscription logic), `app/repo/billing.py`, `config/billing.yaml`.
 
-**Test mode only.** Every request carries `IsTest=1` and is signed with the shop's *test*
-passwords. Robokassa rejects production passwords in test mode, so no setting in this repo can
-move real money.
+**Test or live mode, set on the server.** `ROBOKASSA_MODE=test` (the default) sends `IsTest=1`
+with every request and signs with the shop's *test* passwords (`ROBOKASSA_TEST_PASSWORD1/2`).
+`ROBOKASSA_MODE=live` sends no `IsTest`, signs with the *production* passwords
+(`ROBOKASSA_PASSWORD1/2`) and takes real money. Each mode reads only its own pair: live mode
+never falls back to the test passwords (without its own, checkout answers `PAYMENT_FAILED`), and
+a ResultURL notice signed with the other mode's password #2 is refused. Robokassa itself rejects
+production passwords in test mode and test passwords in live mode. Only the human switches to
+live, in the server's `.env`; tests and e2e always run in test mode. The app logs the mode at
+startup (`Robokassa: live mode`).
 
 ## How payment works
 
@@ -38,9 +44,10 @@ move real money.
 - **Receipts.** A fiscal receipt (54-FZ) goes with every payment as the `Receipt` parameter.
   Its settings are `receipt` in `config/billing.yaml`: no VAT by default, and the tax system
   comes from the Robokassa cabinet unless `sno` is set.
-- **Settings.** `ROBOKASSA_MERCHANT_LOGIN`, `ROBOKASSA_TEST_PASSWORD1`,
-  `ROBOKASSA_TEST_PASSWORD2` and `ROBOKASSA_HASH` (the shop's signature hash, MD5 by default)
-  replaced `YOOKASSA_*`. Without them, checkout answers `PAYMENT_FAILED`.
+- **Settings.** `ROBOKASSA_MODE` (`test` or `live`), `ROBOKASSA_MERCHANT_LOGIN`, the pair of
+  passwords for the mode (`ROBOKASSA_TEST_PASSWORD1/2` or `ROBOKASSA_PASSWORD1/2`) and
+  `ROBOKASSA_HASH` (the shop's signature hash, MD5 by default) replaced `YOOKASSA_*`. Without
+  them, checkout answers `PAYMENT_FAILED`.
 
 ## Database migration (schema 2 → 3)
 
@@ -67,3 +74,8 @@ Any other old version is still refused at startup.
   - whether recurring charges work in test mode.
 - If Robokassa's page shows **error 29**, a signature is wrong: check the passwords and the hash
   first, then the receipt.
+- To go live: the shop must be activated for real payments in the cabinet, and «Робочеки СМЗ»
+  switched on. Put the production passwords #1 and #2 (Technical settings, not the test ones)
+  into `ROBOKASSA_PASSWORD1/2`, set `ROBOKASSA_MODE=live` and restart
+  ([`deploy.md`](deploy.md), step 9). Then make one small real payment and check that the
+  receipt reaches «Мой налог».

@@ -71,8 +71,11 @@ deploy/  host Nginx configs, certbot renew hook, backup.py
 (false), `billing.recurring` (false), `vlm.enabled` (true), `sleep_catchup` (true).
 
 **Secrets** come only from env vars (`.env`, documented in `.env.example`). Robokassa runs in
-**test mode** only: every request carries `IsTest=1` and is signed with the shop's *test*
-passwords (`ROBOKASSA_TEST_PASSWORD1/2`); Robokassa rejects production passwords in test mode. The VLM has a
+**test mode** unless `ROBOKASSA_MODE=live`: test mode sends `IsTest=1` with every request and
+signs with the shop's *test* passwords (`ROBOKASSA_TEST_PASSWORD1/2`); live mode sends no
+`IsTest` and signs with the production passwords (`ROBOKASSA_PASSWORD1/2`). Each mode reads only
+its own pair, and live mode without its pair leaves checkout off. Only the human sets live mode,
+on the server. The VLM has a
 **daily budget cap** (`config/vlm.yaml`).
 
 ### Main ↔ simulation process
@@ -473,11 +476,11 @@ Codes:
   5. Metrics: `adblock_gate_shown`, `adblock_gate_passed`, `plus_clicked`.
 - **Private worlds:** only the host needs Plus; guests on any plan can join.
 - **Freeze:** if the owner's subscription is `past_due` for more than 3 days, or `canceled` after the period end → `frozen=1`. The sim pauses and everyone becomes a viewer. Paying unfreezes immediately. Never delete. With `billing.recurring` off, a subscription whose period ends becomes `past_due`, so its worlds freeze after the 3-day grace.
-- **Billing (Robokassa test mode, behind `app/billing/gateway.py`; overview and history in [`billing.md`](billing.md)):**
-  1. `checkout` saves a `pending` payment with a new invoice number and returns a link to `https://auth.robokassa.ru/Merchant/Index.aspx` with `MerchantLogin`, `OutSum` (`299.00`, or `2490.00` for a year), `InvId`, `Description` and `Culture` in the user's language, `IsTest=1`, the fiscal `Receipt` (`config/billing.yaml`), `Recurring=true` when `billing.recurring` is on, and `SignatureValue = hash(MerchantLogin:OutSum:InvId[:Receipt]:Password#1)`. The Receipt is compact JSON, URL-encoded once in the signature and again in the link. The hash is the shop's (`ROBOKASSA_HASH`, MD5 by default).
+- **Billing (Robokassa, test or live mode (`ROBOKASSA_MODE`), behind `app/billing/gateway.py`; overview and history in [`billing.md`](billing.md)):**
+  1. `checkout` saves a `pending` payment with a new invoice number and returns a link to `https://auth.robokassa.ru/Merchant/Index.aspx` with `MerchantLogin`, `OutSum` (`299.00`, or `2490.00` for a year), `InvId`, `Description` and `Culture` in the user's language, `IsTest=1` in test mode only, the fiscal `Receipt` (`config/billing.yaml`), `Recurring=true` when `billing.recurring` is on, and `SignatureValue = hash(MerchantLogin:OutSum:InvId[:Receipt]:Password#1)`. The Receipt is compact JSON, URL-encoded once in the signature and again in the link. The hash is the shop's (`ROBOKASSA_HASH`, MD5 by default).
   2. The user pays on Robokassa's page and comes back to `/billing/return` (SuccessURL; it only shows the state) or `/plans` (FailURL).
   3. Robokassa posts ResultURL → the signature `hash(OutSum:InvId:Password#2[:Shp_…])` is checked, `OutSum` must equal the invoice's amount (otherwise it is `canceled`) → payment succeeded, subscription active, `period_end` extended from the later of now and the current end → answer `OK<InvId>`. Robokassa's status API (OpStateExt) does not answer for test payments, so the signature is the proof.
-  4. When `billing.recurring` is on, a period that ends marks the subscription `past_due` and charges another month by `POST https://auth.robokassa.ru/Merchant/Recurring` (`InvoiceID` new, `PreviousInvoiceID` = the first invoice paid with `Recurring=true`, signed like the link). Robokassa reports the money at ResultURL, which makes the subscription active again; a refused charge cancels that invoice and the subscription stays `past_due`. The pass runs every minute (logged once a day at 03:00 MSK); a period is charged at most once.
+  4. When `billing.recurring` is on, a period that ends marks the subscription `past_due` and charges another month by `POST https://auth.robokassa.ru/Merchant/Recurring` (`InvoiceID` new, `PreviousInvoiceID` = the first invoice paid with `Recurring=true`, `IsTest=1` in test mode only, signed like the link). Robokassa reports the money at ResultURL, which makes the subscription active again; a refused charge cancels that invoice and the subscription stays `past_due`. The pass runs every minute (logged once a day at 03:00 MSK); a period is charged at most once.
   5. Prices are **always in rubles**, in either UI language. Fiscal receipts are Robokassa's (the `Receipt` parameter).
 - **Auth:**
   - Sign-in by a 6-digit code sent by e-mail (`secrets.randbelow`), stored as SHA-256 of `session:code`, 15 min TTL, single use, 5 wrong guesses void it. A code works only in the browser session that asked for it; a new request replaces it.

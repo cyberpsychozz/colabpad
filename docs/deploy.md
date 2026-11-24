@@ -24,7 +24,7 @@ or Node: the image builds the frontend and runs the client tests during `docker 
 |---|---|---|
 | SMTP mailbox for sign-in codes (implicit TLS, port 465) | `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASSWORD` | sign-in codes are written to the container log instead of being mailed. **Don't run production like that**: anyone who can read the log can sign in as anyone. |
 | OpenRouter key | `VLM_API_KEY` | ALIVE still works: the author picks the type from a grid. Daily spend cap: `daily_budget_usd` in `config/vlm.yaml`. |
-| Robokassa shop: its identifier and the **test** passwords #1 and #2 (Technical settings → test mode), and the hash algorithm set there | `ROBOKASSA_MERCHANT_LOGIN`, `ROBOKASSA_TEST_PASSWORD1`, `ROBOKASSA_TEST_PASSWORD2`, `ROBOKASSA_HASH` | checkout answers "Payment failed". Every payment is sent with `IsTest=1`; production passwords fail there on purpose. |
+| Robokassa shop: its identifier, the **test** passwords #1 and #2 (Technical settings → test mode), the hash algorithm set there, and for real money the **production** passwords #1 and #2 plus `ROBOKASSA_MODE=live` | `ROBOKASSA_MODE`, `ROBOKASSA_MERCHANT_LOGIN`, `ROBOKASSA_TEST_PASSWORD1`, `ROBOKASSA_TEST_PASSWORD2`, `ROBOKASSA_PASSWORD1`, `ROBOKASSA_PASSWORD2`, `ROBOKASSA_HASH` | checkout answers "Payment failed". Test mode (the default) sends `IsTest=1` and uses only the test pair; live mode uses only the production pair. |
 | Yandex Advertising Network block ids `R-A-…` | `ADS_BLOCK_SIDE`, `ADS_BLOCK_BOTTOM` | no ads. Ads also need `ads.enabled: true` in `config/flags.yaml`. |
 | Tailscale (optional): an exit node, plus a **reusable, tagged** auth key whose tag may use exit nodes (`autogroup:internet`) | `TS_AUTHKEY`, `TS_EXIT_NODE` | the VLM is called directly from the server's IP |
 
@@ -81,6 +81,7 @@ SMTP_USER=...
 SMTP_PASSWORD=...
 VLM_API_KEY=...
 ROBOKASSA_MERCHANT_LOGIN=...
+ROBOKASSA_MODE=test
 ROBOKASSA_TEST_PASSWORD1=...
 ROBOKASSA_TEST_PASSWORD2=...
 ROBOKASSA_HASH=md5
@@ -218,7 +219,7 @@ curl -sI http://colabpad.ru/ | grep -i location
 
 The second should show `https://collabpad.ru/?utm_medium=typo_colabpad`.
 
-## 9. Robokassa (test mode)
+## 9. Robokassa (test mode, then live)
 
 In the Robokassa cabinet, the shop → Technical settings:
 
@@ -226,7 +227,7 @@ In the Robokassa cabinet, the shop → Technical settings:
 - Result URL: `https://collabpad.ru/api/billing/result`, method **POST**.
 - Success URL: `https://collabpad.ru/billing/return`, method **GET**.
 - Fail URL: `https://collabpad.ru/plans`, method **GET**.
-- The test-mode passwords #1 and #2 go into `.env` (step 1). Never the production ones.
+- The test-mode passwords #1 and #2 go into `ROBOKASSA_TEST_PASSWORD1/2` in `.env` (step 1).
 
 The app accepts ResultURL only from Robokassa's addresses (`result_ips` in
 `config/billing.yaml`), which is why step 6 matters, and only if it is signed with password #2.
@@ -239,6 +240,27 @@ Fiscal receipts: `receipt` in `config/billing.yaml` sends a 54-FZ receipt with e
 Check: sign in, open `/plans`, pay with Robokassa's test payment method. You come back to
 `/billing/return`, and the plan shows as active. Error 29 on Robokassa's page means a
 signature mismatch: wrong passwords, a different hash, or the receipt (see `docs/status.md`).
+
+### Going live (real money)
+
+Once the shop is activated for real payments and the test payment works, put the
+**production** passwords #1 and #2 (Technical settings, outside test mode) into `.env` and
+switch the mode. The test passwords can stay; live mode ignores them:
+
+```
+ROBOKASSA_MODE=live
+ROBOKASSA_PASSWORD1=...
+ROBOKASSA_PASSWORD2=...
+```
+
+```bash
+cd /opt/collabpad && sudo docker compose up -d --wait && sudo docker compose logs app | grep -i 'robokassa'
+```
+
+The log should say `Robokassa: live mode`. A line saying it is not configured means a
+production password is missing. Then buy the cheapest plan once with a real card, check that
+Plus turns active and that the receipt shows up in «Мой налог», and refund it from the cabinet
+if you like. To go back to test mode, set `ROBOKASSA_MODE=test` and run the same command.
 
 ### Seller details and ads.txt
 
