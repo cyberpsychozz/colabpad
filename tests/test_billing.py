@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -321,6 +322,18 @@ def test_live_mode_takes_real_payments_with_the_production_passwords(tmp_path: P
         assert "IsTest" not in charge
         assert charge["SignatureValue"] == md5(f"{LOGIN}:299.00:{charge['InvoiceID']}:{charge['Receipt']}:live-one")
         assert app.state.repo.get_subscription(user["id"])["status"] == "past_due"
+
+
+def test_the_mode_is_logged_at_a_level_production_shows(caplog: pytest.LogCaptureFixture) -> None:
+    """Production runs uvicorn with --log-level warning: an info line would never be seen."""
+    http = httpx.AsyncClient()
+    with caplog.at_level(logging.WARNING, logger="app.billing.gateway"):
+        build_payments(http, "shop", "p1", "p2", test=False)
+        build_payments(http, "shop", "p1", "p2")
+        build_payments(http, "shop", "", "", test=False)
+    assert [r.getMessage() for r in caplog.records] == [
+        "Robokassa: live mode", "Robokassa: test mode", "Robokassa (live mode) is not configured: checkout is off",
+    ]  # fmt: skip
 
 
 def test_gateway_settings_signatures_and_amounts() -> None:
