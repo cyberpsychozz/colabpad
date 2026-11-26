@@ -36,4 +36,5 @@ export const postMember = (id, email, role) => request(`${access(id)}/members`, 
 export const patchMember = (id, userId, role) => request(`${access(id)}/members/${encodeURIComponent(userId)}`, json('PATCH', { role }));
 export const deleteMember = (id, userId) => request(`${access(id)}/members/${encodeURIComponent(userId)}`, { method: 'DELETE' });
 export const postCheckout = plan => request('/api/billing/checkout', json('POST', { plan }));
+export const getPayment = invId => request(`/api/billing/payments/${encodeURIComponent(invId)}`);
 export const postCancel = () => request('/api/billing/cancel', { method: 'POST' });

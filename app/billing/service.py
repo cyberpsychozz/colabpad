@@ -128,6 +128,17 @@ class Billing:
             await self.sweep()  # paying unfreezes immediately
         return fresh
 
+    def payment(self, session: dict[str, Any], inv_id: int) -> dict[str, Any]:
+        """The buyer's own invoice, for /billing/return. Anyone else's is not found."""
+        row = self.get_repo().get_payment(inv_id)
+        if row is None or not session.get("user_id") or row["user_id"] != session["user_id"]:
+            raise AppError("NOT_FOUND")
+        amount = row["amount_kop"] / 100
+        return {
+            "invId": row["inv_id"], "plan": row["plan"], "amount": int(amount) if amount.is_integer() else amount,
+            "currency": row["currency"], "status": row["status"],
+        }  # fmt: skip
+
     def cancel(self, session: dict[str, Any]) -> dict[str, Any]:
         repo = self.get_repo()
         subscription = repo.get_subscription(session.get("user_id"))

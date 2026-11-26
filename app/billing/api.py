@@ -1,4 +1,4 @@
-"""REST for plans: checkout, Robokassa's ResultURL, cancel."""
+"""REST for plans: checkout, Robokassa's ResultURL, the buyer's payment, cancel."""
 
 from typing import Annotated, Any
 from urllib.parse import parse_qsl
@@ -33,6 +33,10 @@ def billing_router() -> APIRouter:
         fields = dict(request.query_params)
         fields.update(parse_qsl(body.decode("utf-8", "replace"), keep_blank_values=True))
         return PlainTextResponse(await billing.result(fields))
+
+    @router.get("/payments/{inv_id}")
+    async def payment(inv_id: int, request: Request, session: Session) -> dict[str, Any]:
+        return request.app.state.billing.payment(session, inv_id)
 
     @router.post("/cancel")
     async def cancel(request: Request, session: Session) -> dict[str, Any]:

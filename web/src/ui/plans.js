@@ -1,7 +1,8 @@
 // /plans and /billing/return. Prices are always in rubles, whatever the language.
-import { postCancel, postCheckout, countMetric } from '../api.js';
+import { getPayment, postCancel, postCheckout, countMetric } from '../api.js';
 import { getLocale, onLocaleChange, t } from '../i18n/i18n.js';
 import { currentMe, loadMe } from '../me.js';
+import { reportPayment, returnedInvoice } from '../revenue.js';
 import { accountButton, formatDate, openAccount } from './account.js';
 import { brand, languageSwitch, siteFooter } from './chrome.js';
 import { element, localize } from './dom.js';
@@ -56,9 +57,12 @@ function drawPlans(root, redraw) {
   localize(page);
 }
 
-// Robokassa sends the user back here (SuccessURL); its ResultURL notification may land a moment later.
+// Robokassa sends the user back here (SuccessURL, with ?InvId=); its ResultURL notification may
+// land a moment later. With the invoice number we wait for that invoice, not just for Plus (a Plus
+// user buying more already has it), and report the sale to analytics once.
 export function openBillingReturn(root) {
   let alive = true;
+  const invId = returnedInvoice(location.search);
   const text = element('h1', { 'data-i18n': 'plans.checking' });
   const page = element('div', { class: 'home plans' }, header(),
     element('main', {}, text, element('p', {}, element('a', { class: 'button primary', href: '/w', 'data-i18n': 'landing.enter' }))),
@@ -67,8 +71,11 @@ export function openBillingReturn(root) {
   localize(page);
   (async () => {
     for (let attempt = 0; attempt < 15 && alive; attempt++) {
+      const payment = invId && await getPayment(invId).catch(() => null);
+      if (payment?.status === 'canceled') break;
+      reportPayment(payment);
       const me = await loadMe();
-      if (me.plan === 'plus') {
+      if (me.plan === 'plus' && (!payment || payment.status === 'succeeded')) {
         delete text.dataset.i18n;
         text.textContent = t('plan.active', { date: formatDate(me.subscription.periodEnd) });
         return;

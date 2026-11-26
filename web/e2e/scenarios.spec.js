@@ -269,7 +269,7 @@ async function signIn(page, email) {
   await Promise.all([page.waitForEvent('load'), page.locator('#account-code').fill(code)]);
 }
 
-test('buying Plus sends a signed test-mode Robokassa link; its ResultURL notice makes Plus active, in rubles in both languages', async ({ browser, request }) => {
+test('buying Plus sends a signed test-mode Robokassa link; its ResultURL notice makes Plus active and reports the sale to Umami once, in rubles in both languages', async ({ browser, request }) => {
   // A buys a month in English, B a year in Russian. Prices are rubles in both.
   const buyers = [['en-US', 'en', /^Month — /, '299.00', /Done! Plus is active until/, /Payment goes through Robokassa/, /₽299 a month/],
                   ['ru-RU', 'ru', /^Год — /, '2490.00', /Готово! «Плюс» активен до/, /Оплата проходит через Robokassa/, /299\s₽\sв месяц/]];
@@ -281,6 +281,10 @@ test('buying Plus sends a signed test-mode Robokassa link; its ResultURL notice 
       payment = new URL(route.request().url());
       return route.fulfill({ contentType: 'text/html', body: '<title>Robokassa (stub)</title>' });
     });
+    // Umami (stub): the page's custom events land in window.umamiEvents.
+    await page.route('https://stat.gehrman.me/**', route => route.fulfill({ contentType: 'text/javascript',
+      body: route.request().url().endsWith('/script.js') ? 'window.umamiEvents = []; window.umami = { track: (event, data) => window.umamiEvents.push([event, data]) };' : '' }));
+    const sales = () => page.evaluate(() => (window.umamiEvents || []).filter(([event]) => event === 'plus-paid'));
     await page.goto('/plans');
     await expect(page.getByText(note)).toBeVisible();
     await expect(page.getByText(price)).toBeVisible();
@@ -303,6 +307,12 @@ test('buying Plus sends a signed test-mode Robokassa link; its ResultURL notice 
     // Robokassa → SuccessURL: back on the site, Plus is active.
     await page.goto(`/billing/return?OutSum=${outSum}&InvId=${link.InvId}&Culture=${culture}`);
     await expect(page.getByText(active)).toBeVisible();
+    // Umami's Revenue report gets the sale once, in rubles; a reload does not count it again.
+    const plan = culture === 'en' ? 'plus_month' : 'plus_year';
+    expect(await sales()).toEqual([['plus-paid', { revenue: Number(outSum), currency: 'RUB', plan }]]);
+    await page.reload();
+    await expect(page.getByText(active)).toBeVisible();
+    expect(await sales()).toEqual([]);
     await context.close();
   }
 });
