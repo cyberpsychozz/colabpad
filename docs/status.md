@@ -23,6 +23,10 @@ Test runs: [`reports/`](reports/).
 - Robokassa **live mode** (`ROBOKASSA_MODE=live`, [`billing.md`](billing.md)): pytest checks the
   link, ResultURL and recurring request without `IsTest` and with the production passwords; a
   real payment in live mode, and its «Мой налог» receipt, have not been seen yet.
+- Umami revenue (`plus-paid` on `/billing/return`): checked against a stub tracker in the
+  browser scenario. Not yet seen in the real Umami Revenue report. A sale is missed when the
+  buyer never comes back to the return page (closes Robokassa's tab), and counted twice when
+  the same buyer returns in two browsers.
 - Real SMTP delivery.
 - Real РСЯ banners in the four slots (§12.15): the layout and the render calls are checked in
   the browser against a stub loader; whether block `R-A-20462150-1` fills a 216–300 px wide,

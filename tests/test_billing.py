@@ -154,6 +154,25 @@ def test_result_activates_plus_once(application: FastAPI, client: TestClient, sh
     assert repo.db.execute("SELECT count(*) FROM payment WHERE status='succeeded'").fetchone()[0] == 2
 
 
+def test_the_buyer_reads_their_own_payment_for_the_return_page(application: FastAPI, client: TestClient, shop: dict[str, Any]) -> None:
+    """/billing/return asks for the invoice in Robokassa's redirect, to say whether it went
+    through and to report the revenue to analytics once."""
+    link = checkout(client, "plus_year")
+    inv_id = int(link["InvId"])
+    payment = f"/api/billing/payments/{inv_id}"
+    assert client.get(payment).json() == {"invId": inv_id, "plan": "plus_year", "amount": 2490, "currency": "RUB", "status": "pending"}
+    client.post(RESULT, data=notification(inv_id, "2490.00"))
+    assert client.get(payment).json()["status"] == "succeeded"
+
+    # Someone else's invoice, an unknown one, or nobody signed in: not found.
+    stranger = browser(application)
+    sign_in(application, stranger, "stranger@example.org")
+    assert stranger.get(payment).status_code == 404
+    assert browser(application).get(payment).status_code == 404
+    assert client.get("/api/billing/payments/999").status_code == 404
+    assert client.get("/api/billing/payments/abc").status_code == 400
+
+
 def test_result_only_from_robokassas_addresses(application: FastAPI, client: TestClient, shop: dict[str, Any]) -> None:
     billing = application.state.billing
     billing.config.billing["result_ips"] = ["185.59.216.65", "185.59.217.65", "10.0.0.0/8"]
