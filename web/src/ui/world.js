@@ -82,6 +82,7 @@ export async function openWorld(root, canvasId) {
     onState(state) { connection = state; refreshText(); schedule(); },
     onChange: () => schedule(),
     onEvent: (name, data) => worldEvent(name, data),
+    onClock: (serverTime, sent, received) => { entities.clock.sample(serverTime, sent, received); schedule(); },
     onChunk: (cx, cy, data) => entities.setChunk(cx, cy, data.entities),
     onError(code) { toast(t(has(`err.${code}`) ? `err.${code}` : 'canvas.unsaved')); schedule(); },
   });
@@ -99,6 +100,7 @@ export async function openWorld(root, canvasId) {
     onChange: () => schedule(),
     getLasso: () => lasso,
     clearLasso: () => { lasso = null; },
+    restoreLasso: saved => { lasso = saved; },
   });
   localize(lassoPanel);
   const control = createControl({ sync, stage, entities, onChange: () => schedule() });

@@ -109,6 +109,7 @@ class StrokeIn(WireModel):
 
 
 class AliveIn(WireModel):
+    description: str = Field("", max_length=1000)
     lasso: list[tuple[Number, Number]] = Field(max_length=2000)
 
 

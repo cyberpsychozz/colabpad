@@ -11,6 +11,10 @@
 !prompts/**
 !web/
 !web/**
+# Shared Python/JavaScript choreography fixture used by frontend tests.
+!tests/
+!tests/golden/
+!tests/golden/choreography.json
 !deploy/
 !deploy/backup.py
 **/__pycache__/

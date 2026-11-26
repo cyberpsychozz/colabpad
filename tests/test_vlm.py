@@ -100,7 +100,7 @@ def test_request_shape_and_cost_tracking() -> None:
     vlm, spent, models = adapter(handler)
     result = asyncio.run(vlm.classify(b"png-bytes"))
     assert result.type == "creature" and models == ["google/gemini-3.8-flash"]
-    assert seen["url"] == "https://openrouter.ai/api/v1/chat/completions"
+    assert seen["url"] == f"{CONFIG['base_url']}/chat/completions"
     assert seen["auth"] == "Bearer test-key"
     assert seen["temperature"] == 0 and seen["max_tokens"] == 700
     assert seen["response_format"]["json_schema"]["strict"] is True

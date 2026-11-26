@@ -42,14 +42,14 @@ class SimCore:
         elif op == "chunk":
             world.set_subscribed((message["cx"], message["cy"]), message["on"])
         elif op == "input":
-            if message["id"] in world.entities:
+            if message["id"] in world.entities and not world.entities[message["id"]].scripted:
                 world.inputs[message["id"]] = (message["ax"], message["ay"])
         elif op == "release":
             world.inputs.pop(message["id"], None)
         elif op == "interact":
             interact.interact(world, message["id"], message["action"], message.get("to"))
         elif op == "freeze":
-            world.frozen = message["frozen"]
+            world.set_frozen(message["frozen"])
         elif op == "command":
             # A type-specific request from main (claim a remote, light a fuse...).
             entity = world.entities.get(message["id"])

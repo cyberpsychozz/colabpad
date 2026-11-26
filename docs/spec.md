@@ -62,7 +62,7 @@ web/src/
   camera, chunks (tile cache + subscribe), draw, socket, api, ads, analytics,
   render/ (strokes, entities, goo, vfx), ui/ (tools, alive, chooser, control, share, plans, gate), i18n/
 config/  archetypes labels balance limits vlm billing flags (.yaml), legal.yaml (git-ignored; template legal.example.yaml), ads.txt
-prompts/ classify.md
+prompts/ classify.md, parts.md, generate.md
 scripts/ loadtest.py, vlm_accuracy.py, drawings.py
 deploy/  host Nginx configs, certbot renew hook, backup.py
 ```
@@ -175,11 +175,11 @@ Fruit, wild fish and flames are not drawn by anyone: they use built-in sprites (
 
 ## 4. The ALIVE pipeline (≤ 8 s p95, hard limit 25 s)
 
-1. **Request:** `POST /api/canvases/{id}/alive {lasso}`. Validate: role = editor; quota; 3–500 points; bbox ≤ 1024×1024; not frozen; ≤ 1 ALIVE per 5 s.
+1. **Request:** `POST /api/canvases/{id}/alive {lasso, description?: string}`. Validate: role = editor; quota; 3–500 points; bbox ≤ 1024×1024; not frozen; ≤ 1 ALIVE per 5 s.
 2. **Select strokes:** take the chunks overlapped by the bbox and keep strokes with **no fate** (static). A stroke is included if **≥ 70% of its points** are inside the polygon (even-odd rule). Limit 1–400 strokes. Reject a stroke that is alive or already under another job (in-memory lock keyed by `(canvas, seq)`).
 3. Return **202 `{jobId, quota}`** and broadcast `alive:goo {jobId, polygon, by}` to the polygon's chunk rooms. Goo must appear ≤ 300 ms for the author and ≤ 500 ms for others.
 4. **Rasterize** with skia-python using the Python port of `renderStroke`. Transparent background, alpha-trimmed with an 8 px pad, long side ≤ 512 px. A white-background copy goes to the VLM. **Off the event loop** (`asyncio.to_thread`).
-5. **Classify** through the VLM adapter (async httpx, OpenRouter-compatible API): temperature 0, max_tokens 700, 10 s timeout, 1 retry, then the fallback model; after a timeout it goes straight to the fallback. Strict JSON schema (below). Model IDs in `config/vlm.yaml`. The VLM gets what is left of the 25 s hard limit minus 5 s for rigging; past that the author gets the type grid. `VLM_PROXY_URL` sends the VLM calls, and only those, through an HTTP proxy; the app's HTTP clients ignore `HTTPS_PROXY`.
+5. **Classify** through the VLM adapter (async httpx, OpenRouter-compatible API): temperature 0, max_tokens 700, 10 s timeout, 1 retry, then the fallback model; after a timeout or a nontransient HTTP 4xx it goes straight to the fallback. Strict JSON schema (below). Model IDs in `config/vlm.yaml`. The VLM gets what is left of the 25 s hard limit minus 5 s for rigging; past that the author gets the type grid. `VLM_PROXY_URL` sends the VLM calls, and only those, through an HTTP proxy; the app's HTTP clients ignore `HTTPS_PROXY`.
 6. **Post-process:**
    - `config/labels.yaml` overrides the type by label, in either language (e.g. волк/wolf → predator; костёр/campfire → fire with campfire = true).
    - Clamp part boxes to 0–1 and drop any under 2% of the area.
@@ -217,6 +217,195 @@ The job queue is an in-process `asyncio` queue with concurrency 4 and ≤ 100 qu
 - Drawings may contain handwriting in Russian or English; read it as a hint.
 
 Accuracy is measured with `scripts/vlm_accuracy.py` over 81 drawings (target ≥ 80% top-1); last run: [`reports/vlm-accuracy.md`](reports/vlm-accuracy.md).
+
+---
+
+### 4a. Text-directed repeating animation (choreography v1)
+
+A nonblank optional `description` (RU/EN, at most 1,000 characters) requests a generated
+performance for the selected drawing. Blank/whitespace descriptions use §4 unchanged.
+The shipped `config/vlm.yaml` includes the required `generation` limits section;
+`generation.description_chars: 1000` is checked on both paths before provider calls.
+The field appears next to ALIVE. On a failure the author gets a localized explanation,
+the lasso and description return for editing, strokes remain static, selection locks
+release, and quota is refunded (except the existing unsafe-content charge).
+There is no manual chooser or procedural-animation fallback for this operation.
+
+Generation uses two sequential schema-constrained OpenRouter operations:
+`Vlm.identify_parts(image_png)` receives only the padded raster (no action text),
+using `prompts/parts.md` v4. `Vlm.animate(prepared_drawing, description)` receives
+only text: the fixed prepared geometry and the requested action, using
+`prompts/generate.md` v3. The motion schema has no parts, boxes, pivots or labels;
+it cannot replace geometry. The compiler combines its tracks with the prepared
+parts. Both operations allow 8,192 output tokens and share the existing key,
+VLM-only proxy, daily budget and retry policy. Vision uses `primary_model` /
+`fallback_model`; text planning uses `motion_model` / `motion_fallback_model`,
+defaulting to those vision models if omitted. The same multimodal model can serve
+as a text-only LLM here; choosing a different model is optional.
+
+Rasterization, both operations and all their attempts, atlas preparation and
+compilation share a separate generated-job deadline: `generation.hard_timeout_s: 90`.
+Each generation HTTP attempt uses `generation.request_timeout_s: 30`; each complete
+provider operation is additionally bounded by the remaining job time minus a 5 s
+preparation reserve. Ordinary empty-description ALIVE retains its 25 s job and 10 s
+HTTP limits. Timeouts and HTTP 4xx other than 408/429 skip repeat attempts on the
+same primary and go directly to the fallback, so a deterministic HTTP 400 cannot
+spend the remaining job time on the same rejected request. Transient HTTP errors
+and invalid model output retain the configured retry policy. Generation requests
+set `provider.require_parameters:true` to select endpoints supporting the requested
+structured output. Integer repeat end times use inclusive `minimum:1` on the wire,
+preserving strict-positive validation without relying on `exclusiveMinimum`, which
+is outside Gemini's documented schema subset.
+For `google/gemini-*` motion requests, the adapter removes `maxItems` from arrays
+in a fresh copy of the wire schema. Nested limits such as 90 tracks × 256 keys
+make Gemini's constrained-decoding grammar too large. Object structure, required
+fields, enums and minimum key count remain in the wire schema. Every response is
+still validated against the full `Motion` model and canonical compiler limits;
+other providers retain the full wire schema. Vision and ordinary classification
+schemas are unchanged. The output-token allowance still bounds response size.
+Generation failures use VLM_TIMEOUT / VLM_UNAVAILABLE; invalid plans or geometry
+use ANIMATION_INVALID. Structured unsupported results map to ANIMATION_OTHER_ACTORS,
+ANIMATION_GAMEPLAY, ANIMATION_MISSING_PARTS or ANIMATION_UNSUPPORTED. Provider text
+is never shown as an error. Unsafe and multiple selection policies still apply.
+Successful drawings are stored as type `doodle` with mode `scripted_visual`.
+
+**Vision JSON:** `{version:2,status,reason,label:{ru,en},parts}` (schema name
+`drawing_parts_v2`). Parts extend the geometry below with bilingual `label`,
+`pivot_type:joint|center`, and required `kind:part|wheel`. Kind is explicit and
+independent of IDs or localized labels; rotating heads, stars and polygons remain
+ordinary parts. Wheels require a center pivot. Identify whole
+limbs, with all parts independent and directly attached to the body; no articulated
+part chains or inferred missing limbs. Successful vision replies are checked for
+unique/nonreserved IDs, part count, positive box sizes, normalized box edges/pivots
+and wheel-center pivots inside the provider's existing retry/fallback loop. Invalid
+geometry can therefore retry within the same user job, shared deadline and daily
+budget. Refusals keep their original status. The same checks run in preparation
+and compilation; normalized boundary comparisons tolerate only `1e-9` roundoff,
+including world/raster conversions at a trimmed layer edge. Larger errors remain
+invalid; boxes are not guessed or silently repaired. Errors name the part and field
+(for example `box.right (x + width)`), without echoing model prose. Geometry is
+assigned to actual stroke layers before motion planning.
+A single joint limb occupying at least 60% of
+a separate stroke's arc length keeps the short remaining attachment stub when the
+stroke has only one ownership transition. Open joint strokes offer their endpoints
+near body ink (within the widest stroke width + 3% of raster long side + 2.5 raster
+px). A stroke whose endpoints are within three stroke widths is treated as closed:
+its nearest body-contact contour samples are candidates instead of its start/end.
+This lets a closed head attach at the neck regardless of where its outline began.
+The candidate closest to the proposed pivot wins. Spatial cells bound the contact
+search in memory. Disconnected joints and empty parts fail. Center pivots use the
+actual part stroke bounds' center. Boxes
+are replaced with actual trimmed layer bounds for the planner and preview. These are
+geometric heuristics, not an anatomical recognition guarantee; ownership boundaries
+on continuous strokes can still be mistaken for joints.
+
+Generated wheels take whole logical strokes, never rectangular fragments of body
+lines. Client chunk-boundary pieces are rejoined for ownership analysis. At least
+80% of a stroke's arc length must lie inside the wheel box's ellipse expanded by
+1.25 about its center (the ordinary rig's wheel tolerance). Zero-length dots use
+their point. An eligible stroke is assigned intact to the wheel with greatest
+coverage, breaking ties by normalized distance to its center. Wheels are excluded
+from the rectangular point-splitting pass, so rejected body lines stay whole unless
+another non-wheel part owns them. Contours and contained spokes move together;
+unrelated lines fully contained in the wheel region remain geometrically ambiguous.
+New wheel semantics apply during preparation of new animations. Existing saved
+atlases are not regenerated, and motion/internal plan versions remain 1.
+
+**Motion JSON:** `{version:1,status,reason,duration,tracks,repeats}`. Local actions
+must address an existing named part; the prompt explicitly forbids substituting body
+rotation for waving an absent arm. There is no semantic motion verifier. The two
+provider results (`identified`, `motion`), prepared geometry (`prepared`), and prompt
+versions are saved in `alive_job.vlm_result`, including completed earlier stages when
+a later stage fails. Every failed ALIVE logs a WARNING with job ID, current stage,
+error code and internal reason, including expected AppError/timeout paths. The same
+`failure:{stage,code,reason}` is saved alongside earlier stage results. Geometry
+reasons identify the part; provider contract errors name invalid fields/types;
+HTTP errors include status and bounded upstream error text with the API key removed;
+OpenRouter's nested `error.metadata.raw` JSON is inspected for the actual provider
+error message, instead of logging only the generic "Provider returned error" wrapper.
+Logs omit images, action text and response values from schema errors. Generated
+job timings include cumulative completed-stage timestamps and total time on failure.
+
+After atlas preparation and before the motion call, author-only `alive:parts`
+`{jobId,drawing:preparedDrawing,size:[rasterWidth,rasterHeight],image:pngDataUrl}`
+opens a collapsible diagnostic panel. It overlays boxes and pivot crosses on the
+original drawing, offers bilingual part selection, and retains the last preview
+through playback or a later failure. Other viewers receive normal goo/progress and
+animation only. The panel adds no confirmation step; the next ALIVE clears it, and
+page reload does not restore it. Progress stages include `parts`, `generate`, `rig`.
+
+**Internal composed JSON:** `{version:1, status:ok|unsupported|unsafe|multiple, reason:null|other_actors|
+gameplay|missing_parts|cannot_satisfy, label:{ru,en}, duration, parts, tracks, repeats}`.
+Parts are `{id, box:[x,y,width,height], pivot:[x,y], order}` with stable lowercase ASCII
+IDs. Boxes and pivots are normalized to the supplied padded image; order is -16..16
+(back to front, body order 0, equal orders sorted by ID). Reserved IDs: `root`, `body`.
+Tracks are `{target, property, keys:[{t,v,ease}]}`. Root permits x/y translation only;
+body and parts permit x/y, rotation, scaleX, scaleY. The body transform parents all layers.
+Each property has one track, starts at t=0, has at least two strictly increasing integer
+millisecond keys, and holds its last value through completion. Defaults are zero
+translation/rotation and unit scale. Easing belongs to the outgoing key: `linear`,
+`smooth` (u²(3−2u)), `in` (u²), `out` (1−(1−u)²), `hold` (changes at the next key).
+Translation is converted once from drawing width/height units to world pixels. Rotation
+is clockwise degrees in y-down coordinates. Transform order is
+`T(translation) T(pivot) R S T(-pivot)`: part first, then body around the drawing center,
+then root. Python and JS use the same interpolation fixture in
+`tests/golden/choreography.json`.
+
+A repeat `{start,end,count}` plays a closed segment `count` times in total. Boundaries
+are explicit keys on every track with matching start/end values. Segments cannot overlap
+or nest. The compiler expands every track on one timeline and shifts following events;
+there are no model-defined dynamic loops or further model calls. `duration` is the base timeline length;
+the expanded performance must fit the limits. `config/vlm.yaml` sets initial limits:
+30,000 ms per performance including segment repeats, 16 parts, 256 expanded keys, 8 plays, 65,536 canonical JSON
+bytes and root displacement within 512 px. Other translations are ±2 drawing units,
+rotation ±1,440°, scale .25..4. Unknown fields, nonfinite values, unknown parts, conflicting
+property tracks, invalid times and excessive transforms fail before consumption.
+Continuous conservative interval bounds cover intermediate translations, rotations and
+scales against the world edges and root displacement radius; a near-edge trajectory may
+be rejected even when a tighter bound could fit. No partial execution is possible.
+
+**Layered sprite manifest:** `{format:"layered",version:1,layers:[{id,order,src:[x,y,w,h],
+offset:[x,y],size:[w,h],pivot:[x,y]}]}`. `src` is atlas pixels; placement, size and pivots are
+world pixels relative to the fixed drawing center. Arbitrary named parts reuse curve
+sampling and stroke ownership/splitting; layers contain only the author's existing lines.
+An identified part without lines fails preparation. Trimmed layers are shelf-packed in
+one PNG, downloaded once; ordinary entities keep their sprite sheets. Canvas 2D composes
+the layers. Click bounds follow transformed layer quadrilaterals; scripted entities reject
+all player interactions on the server.
+
+**Isolation and playback:** `params` stores `mode`, validated canonical `plan`, fixed
+`origin`, `promptVersion`, and `partsPromptVersion`; `params.data.playback` stores total active elapsed ms,
+revision and `pauseMs`.
+No schema migration. Scripted entities have no components, use the inert brain, are absent
+from type indexes and spatial perception, cannot be targeted, eaten, damaged, pushed,
+dragged, driven, used as shelters or sources of weather/spawns, and exert no effects on
+ordinary entities. Visual overlap is allowed. Editor roles and population limits are
+checked before creation and again before stroke consumption.
+
+Simulation time owns root position, chunk membership, cycle boundaries and pause/resume.
+Full entities carry `mode`, `plan`, `origin` and a `view.playback` checkpoint
+`{elapsed,revision,pauseMs,running,serverTime}`. Compact deltas carry a checkpoint every
+two ticks and on freeze/sleep, wake, performance end and cycle restart; the plan is sent
+only with full entities. `world:clock` (c→s `{}`, s→c acknowledgment)
+returns `{serverTime}` (Unix ms). Clients measure the round trip on connect and every
+30 s and use its midpoint to align their monotonic clocks; they evaluate canonical tracks
+from the checkpoint and correct at the next one, with extrapolation capped at 300 ms.
+They never use receipt time as animation start. Late subscribers receive current progress.
+Sleep and canvas freeze stop elapsed time; wake resumes it without catch-up. Root positions
+always use stored origin plus evaluated root translation. After each performance, the
+object holds its final position and pose for **2 seconds** (`generation.loop_pause_ms:
+2000` in `config/vlm.yaml`), then repeats the complete validated performance from the fixed
+origin and initial pose, indefinitely. It never enables a type brain or asks the model again.
+Segment-repeat limits still apply within each finite performance. `elapsed` advances
+through both the performance and its inter-cycle pause; `running` means this clock is
+advancing, including during that pause. The pose time is
+`min(duration, elapsed % (duration + pauseMs))`, shared by Python and JS. Thus root motion
+never accumulates across cycles. Freeze and sleep also pause the remaining inter-cycle wait.
+Existing stored visual entities, including completed ones, resume with the same repeat
+policy; no regeneration or schema migration is needed. Checkpoints without `pauseMs` retain
+their old one-performance semantics on the client until the server refreshes them.
+Main persists progress with normal 5 s snapshots; process recovery may lose up to 5 s but
+preserves the total clock and fixed origin, including a saved inter-cycle pause.
 
 ---
 
@@ -429,6 +618,7 @@ Walk cycles can be reviewed without spending money: `scripts/vlm_accuracy.py --f
 | c→s | `control:input` | `{ax, ay}` ∈ [−1, 1] | 20/s while leased |
 | s→c | `stroke:new`, `stroke:fate` | stroke / `{seqs[], fate, entityId?}` | chunk room |
 | s→c | `alive:goo` / `alive:progress` / `alive:choose` / `alive:failed` | §4 | |
+| s→c | `alive:parts` | §4a, prepared image, parts and pivots | author session only |
 | s→c | `world:snapshot` / `world:delta` / `world:event` | §7 | |
 | s→c | `control:granted` / `control:revoked` | `{vehicleId, until}` / `{reason}` | |
 | s→c | `canvas:frozen` | `{frozen}`; clients reload | |
@@ -451,6 +641,7 @@ Codes:
 - VALIDATION_FAILED 400, CODE_INVALID 400, CODE_EXPIRED 410, UNAUTHENTICATED 401, FORBIDDEN_ROLE 403, PAYMENT_REQUIRED 402
 - CANVAS_FROZEN 423, NOT_FOUND 404, QUOTA_EXCEEDED 429, RATE_LIMITED 429
 - SELECTION_EMPTY 422, SELECTION_TOO_LARGE 422, SELECTION_MULTIPLE 422, SELECTION_BUSY 409, STROKES_ALREADY_ALIVE 409
+- ANIMATION_INVALID / ANIMATION_OTHER_ACTORS / ANIMATION_GAMEPLAY / ANIMATION_MISSING_PARTS / ANIMATION_UNSUPPORTED 422
 - ENTITY_LIMIT 409, WORLD_LIMIT 409, UNSAFE_CONTENT 422, VLM_TIMEOUT / VLM_UNAVAILABLE (→ manual type grid, not shown as an error)
 - CHOICE_EXPIRED 410, CONTROL_TAKEN 409, PAYMENT_FAILED 402, PAYLOAD_TOO_LARGE 413, INTERNAL 500
 - NOT_JOINED (socket only)
@@ -616,8 +807,8 @@ forms in RU and one/other in EN; the table shows the RU one/few/many endings.
 
 ## 12. Acceptance scenarios (two browser clients; once in RU and once in EN)
 
-`web/e2e/scenarios.spec.js` (`npm run e2e`) automates parts of 1, 5, 6, 8, 9 and 14 (with a
-lower quota for 9). The rest are walked by hand or covered by unit tests. What was last walked,
+`web/e2e/scenarios.spec.js` and `web/e2e/generated.spec.js` (`npm run e2e`) automate
+parts of 1, 5, 6, 8, 9, 14 and 17 (with a lower quota for 9). The rest are walked by hand or covered by unit tests. What was last walked,
 and what wasn't: [`reports/scenario-run.md`](reports/scenario-run.md) and [`status.md`](status.md).
 
 1. An anonymous user opens `/w` and lands near activity. They pan and zoom across a big world, draw a cow, a pond and an apple tree, and press **ОЖИВИ** (or **ALIVE** in EN) on each. Both clients see the goo and then the objects, with name tags in each client's own language.
@@ -636,3 +827,13 @@ and what wasn't: [`reports/scenario-run.md`](reports/scenario-run.md) and [`stat
 14. Switching RU ↔ EN changes every visible string. The missing-key test passes. The load test meets §7; `docker compose up --build` works from a clean clone; all tests are green.
 15. A free viewer on desktop sees four ad slots, two stacked on each side of the canvas; banners arriving late (even oversized ones) don't move the canvas. A Plus viewer sees no ad space; a narrow screen gets one fixed strip at the bottom.
 16. The landing page's footer shows the seller's name, ИНН, e-mail and phone and links `/about`, `/offer`, `/privacy`, each showing the seller's details, in RU and EN; switching language redraws a document; `/plans` links the offer and the sign-in dialog the policy; `/ads.txt` lists Yandex as a direct seller.
+
+17. Text-directed animation: an author describes one drawing; two clients in RU/EN see
+    the same finite performance with independently moving parts. A late viewer and reload
+    join at the current position. Freeze, chunk sleep and process recovery preserve elapsed
+    playback and fixed origin. Each performance holds its final pose for two seconds, then
+    repeats from the fixed origin; clients remain synchronized across the boundary. Ordinary entities cannot
+    interact with scripted visuals in either direction. Provider/validation/unsupported
+    failures leave strokes intact and return the lasso for editing. Blank descriptions
+    continue through the ordinary ALIVE flow. See `web/e2e/generated.spec.js` and
+    `tests/test_generated_alive.py` (fake providers, no real-provider quality claim).

@@ -1,0 +1,220 @@
+{
+  "plan": {
+    "version": 1,
+    "duration": 1000,
+    "tracks": [
+      {
+        "target": "root",
+        "property": "x",
+        "keys": [
+          {
+            "t": 0,
+            "v": 0,
+            "ease": "linear"
+          },
+          {
+            "t": 1000,
+            "v": 100,
+            "ease": "linear"
+          }
+        ]
+      },
+      {
+        "target": "body",
+        "property": "rotation",
+        "keys": [
+          {
+            "t": 0,
+            "v": 0,
+            "ease": "smooth"
+          },
+          {
+            "t": 1000,
+            "v": 90,
+            "ease": "linear"
+          }
+        ]
+      },
+      {
+        "target": "arm",
+        "property": "y",
+        "keys": [
+          {
+            "t": 0,
+            "v": 0,
+            "ease": "in"
+          },
+          {
+            "t": 1000,
+            "v": -40,
+            "ease": "linear"
+          }
+        ]
+      },
+      {
+        "target": "arm",
+        "property": "scaleX",
+        "keys": [
+          {
+            "t": 0,
+            "v": 1,
+            "ease": "out"
+          },
+          {
+            "t": 1000,
+            "v": 2,
+            "ease": "linear"
+          }
+        ]
+      },
+      {
+        "target": "arm",
+        "property": "rotation",
+        "keys": [
+          {
+            "t": 0,
+            "v": 0,
+            "ease": "hold"
+          },
+          {
+            "t": 1000,
+            "v": 90,
+            "ease": "linear"
+          }
+        ]
+      }
+    ]
+  },
+  "samples": [
+    {
+      "t": 250,
+      "target": "root",
+      "pose": {
+        "x": 25,
+        "y": 0,
+        "rotation": 0,
+        "scaleX": 1,
+        "scaleY": 1
+      }
+    },
+    {
+      "t": 250,
+      "target": "body",
+      "pose": {
+        "x": 0,
+        "y": 0,
+        "rotation": 14.0625,
+        "scaleX": 1,
+        "scaleY": 1
+      }
+    },
+    {
+      "t": 250,
+      "target": "arm",
+      "pose": {
+        "x": 0,
+        "y": -2.5,
+        "rotation": 0,
+        "scaleX": 1.4375,
+        "scaleY": 1
+      }
+    },
+    {
+      "t": 2000,
+      "target": "arm",
+      "pose": {
+        "x": 0,
+        "y": -40,
+        "rotation": 90,
+        "scaleX": 2,
+        "scaleY": 1
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "point": [
+        2,
+        1
+      ],
+      "pivot": [
+        1,
+        1
+      ],
+      "pose": {
+        "x": 3,
+        "y": 4,
+        "rotation": 90,
+        "scaleX": 2,
+        "scaleY": 1
+      },
+      "expected": [
+        4,
+        7
+      ]
+    },
+    {
+      "point": [
+        10,
+        20
+      ],
+      "pivot": [
+        5,
+        6
+      ],
+      "pose": {
+        "x": -3,
+        "y": 8,
+        "rotation": -90,
+        "scaleX": 0.5,
+        "scaleY": 2
+      },
+      "expected": [
+        30,
+        11.5
+      ]
+    }
+  ],
+  "playback_samples": [
+    {
+      "elapsed": 0,
+      "pauseMs": 2000,
+      "phase": 0
+    },
+    {
+      "elapsed": 250,
+      "pauseMs": 2000,
+      "phase": 250
+    },
+    {
+      "elapsed": 1000,
+      "pauseMs": 2000,
+      "phase": 1000
+    },
+    {
+      "elapsed": 1500,
+      "pauseMs": 2000,
+      "phase": 1000
+    },
+    {
+      "elapsed": 2999,
+      "pauseMs": 2000,
+      "phase": 1000
+    },
+    {
+      "elapsed": 3000,
+      "pauseMs": 2000,
+      "phase": 0
+    },
+    {
+      "elapsed": 3250,
+      "pauseMs": 2000,
+      "phase": 250
+    },
+    {
+      "elapsed": 9250,
+      "pauseMs": 2000,
+      "phase": 250
+    }
+  ]
+}

@@ -44,6 +44,8 @@ class EntityRepo:
             "w": params.get("w"),
             "h": params.get("h"),
             "variant": params.get("variant"),
+            **({"mode": "scripted_visual", "plan": params["plan"], "origin": params["origin"]}
+               if params.get("mode") == "scripted_visual" else {}),
             "scale": params.get("scale", 1),
             "sprite": {
                 "sheet": f"/sprites/{row['sheet_path']}",

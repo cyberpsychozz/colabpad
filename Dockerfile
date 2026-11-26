@@ -7,6 +7,8 @@ COPY web/ ./
 # The catalog test checks that every server error code and object type has text.
 COPY app/errors.py /build/app/errors.py
 COPY config/archetypes.yaml /build/config/archetypes.yaml
+# Frontend and Python tests use the same interpolation and transform fixtures.
+COPY tests/golden/choreography.json /build/tests/golden/choreography.json
 RUN npm test && npm run build
 
 FROM python:3.12-slim-bookworm AS python-dependencies

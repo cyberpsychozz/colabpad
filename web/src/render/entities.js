@@ -1,4 +1,5 @@
 // The entity layer: each entity is the current frame of its sprite sheet, in world units.
+import { drawLayered } from '../choreography.js';
 import { EntityStore } from '../entities.js';
 import { getLocale } from '../i18n/i18n.js';
 
@@ -19,23 +20,32 @@ export function drawEntities(ctx, { camera, entities, dpr, now, driving = null }
   for (const entity of entities.sorted()) {
     const { manifest } = entity.sprite;
     const image = entities.image(entity);
-    if (!image.complete || !image.naturalWidth || !manifest.anims) { animating = true; continue; }
-    const scale = entity.scale || 1;
+    if (!image.complete || !image.naturalWidth || (!manifest.anims && manifest.format !== 'layered')) { animating = true; continue; }
+    const layered = manifest.format === 'layered';
     const size = EntityStore.sizeOf(entity);
-    const width = manifest.frameW / scale, height = manifest.frameH / scale;
-    const [pivotX, pivotY] = manifest.pivot;
-    // Freshly spawned entities jump out with a little overshoot.
-    const age = entity.bornAt ? (now - entity.bornAt) / POP_MS : 1;
-    const pop = age >= 1 ? 1 : 1 + 0.35 * Math.sin(Math.min(1, age) * Math.PI) - (1 - age) * 0.4;
-    if (age < 1) animating = true;
-    const { row, column } = frameOf(entity, manifest, now);
-    if ((manifest.anims[entity.anim] || manifest.anims.idle).frames > 1) animating = true;
-    // Sprites face the way they were drawn; flip when moving the other way.
-    const flip = entity.dir && (entity.dir > 0) !== (manifest.facing === 'right') ? -1 : 1;
-    ctx.setTransform(k, 0, 0, k, (entity.rx - camera.x) * k, (entity.ry - camera.y) * k);
-    ctx.scale(pop * size * flip, pop * size);
-    ctx.drawImage(image, column * manifest.frameW, row * manifest.frameH, manifest.frameW, manifest.frameH,
-      -pivotX / scale, -pivotY / scale, width, height);
+    let height = entity.h || 40;
+    if (layered) {
+      ctx.setTransform(k, 0, 0, k, (entity.rx - camera.x) * k, (entity.ry - camera.y) * k);
+      drawLayered(ctx, image, manifest, entity.plan, entity.playhead || 0);
+      animating ||= !!entity.view?.playback?.running;
+    } else {
+      const scale = entity.scale || 1;
+      const width = manifest.frameW / scale; height = manifest.frameH / scale;
+      const [pivotX, pivotY] = manifest.pivot;
+      // Freshly spawned entities jump out with a little overshoot.
+      const age = entity.bornAt ? (now - entity.bornAt) / POP_MS : 1;
+      const pop = age >= 1 ? 1 : 1 + 0.35 * Math.sin(Math.min(1, age) * Math.PI) - (1 - age) * 0.4;
+      if (age < 1) animating = true;
+      const { row, column } = frameOf(entity, manifest, now);
+      if ((manifest.anims[entity.anim] || manifest.anims.idle).frames > 1) animating = true;
+      // Sprites face the way they were drawn; flip when moving the other way.
+      const flip = entity.dir && (entity.dir > 0) !== (manifest.facing === 'right') ? -1 : 1;
+      ctx.setTransform(k, 0, 0, k, (entity.rx - camera.x) * k, (entity.ry - camera.y) * k);
+      ctx.scale(pop * size * flip, pop * size);
+      ctx.drawImage(image, column * manifest.frameW, row * manifest.frameH, manifest.frameW, manifest.frameH,
+        -pivotX / scale, -pivotY / scale, width, height);
+
+    }
 
     const bottom = (entity.h || height * 0.7) * size / 2;
     const screenX = (entity.rx - camera.x) * k, screenY = (entity.ry - camera.y) * k;

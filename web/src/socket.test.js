@@ -18,6 +18,7 @@ class Transport {
   disconnect() { this.connected = false; this.handlers.disconnect?.(); }
   timeout() { return this; }
   emit(event, data, ack) {
+    if (event === 'world:clock') { ack(null, { serverTime: 10000 }); return; }
     const reply = event === 'viewport:set'
       ? (this.viewports.push(data.chunks), this.viewportReply(data))
       : (this.sent.push(data), this.reply(data));
@@ -40,6 +41,17 @@ function setup(options = {}) {
   const seqs = (cx = 0, cy = 0) => [...store.get(cx, cy).strokes.keys()].sort((a, b) => a - b);
   return { sync, store, transport, errors, states, sleeps, fetched, seqs };
 }
+
+test('prepared part previews reach the UI and stop after the world is closed', () => {
+  const events = [];
+  const { sync, transport } = setup({ onEvent: (name, data) => events.push([name, data]) });
+  const preview = { jobId: 'drawing-job', drawing: { parts: [] }, size: [100, 200], image: 'data:image/png;base64,test' };
+  transport.handlers['alive:parts'](preview);
+  assert.deepEqual(events, [['alive:parts', preview]]);
+  sync.stop();
+  transport.handlers['alive:parts'](preview);
+  assert.equal(events.length, 1);
+});
 
 test('offline strokes stay FIFO and flush after subscribe plus fetch', async () => {
   const { sync, transport, fetched, seqs, states } = setup();
@@ -148,5 +160,15 @@ test('a failing chunk fetch is retried with backoff and does not lose the outbox
   assert.deepEqual(sleeps, [1000, 2000]);
   assert.deepEqual(seqs(), [1]);
   assert.equal(sync.outbox.length, 0);
+  sync.stop();
+});
+
+test('clock synchronization uses a server timestamp and measured round trip', async () => {
+  const samples = [];
+  const { sync } = setup({ onClock: (...sample) => samples.push(sample) });
+  sync.start(); await tick();
+  assert.equal(samples.length, 1);
+  assert.equal(samples[0][0], 10000);
+  assert.ok(samples[0][2] >= samples[0][1]);
   sync.stop();
 });

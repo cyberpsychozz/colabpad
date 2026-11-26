@@ -51,7 +51,7 @@ def create_router() -> APIRouter:
         state = request.app.state
         canvas = state.repo.get_canvas(check_id(canvas_id))
         require_role(request, canvas, session, "editor")
-        job, quota = state.alive.submit(canvas, session, body.lasso)
+        job, quota = state.alive.submit(canvas, session, body.lasso, body.description)
         await state.alive.announce(job, session["nickname"])
         return {"jobId": job.id, "quota": quota}
 

@@ -15,7 +15,7 @@ def apply_inputs(world: "World", dt: float) -> None:
     """Controlled entities move by their driver's stick, not by a goal."""
     for entity_id, (ax, ay) in list(world.inputs.items()):
         entity = world.entities.get(entity_id)
-        if entity is None:
+        if entity is None or entity.scripted:
             del world.inputs[entity_id]
             continue
         length = math.hypot(ax, ay)
@@ -40,7 +40,7 @@ def apply_inputs(world: "World", dt: float) -> None:
 def interact(world: "World", entity_id: str, action: str, to: Any = None) -> None:
     """pet: a small reaction. push: a shove away from the cursor. drag: move it there."""
     entity = world.entities.get(entity_id)
-    if entity is None:
+    if entity is None or entity.scripted:
         return
     draggable = world.config.limits["interact"]["draggable"]
     x, y = world.pos(entity)

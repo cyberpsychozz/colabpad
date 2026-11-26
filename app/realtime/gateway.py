@@ -55,6 +55,7 @@ class Realtime:
         self.sim: Any = None  # the SimBridge, once started
         self.sio.on("connect", self.connect)
         self.sio.on("viewport:set", self.viewport)
+        self.sio.on("world:clock", self.clock)
         self.sio.on("stroke:add", self.add)
         self.sio.on("disconnect", self.disconnect)
         self.control = Control(self, config.limits)
@@ -162,6 +163,10 @@ class Realtime:
         except Exception:
             logger.exception("%s failed", what)
             return AppError("INTERNAL").body(locale)
+
+    async def clock(self, sid: str, data: Any = None) -> dict[str, Any]:
+        from app.repo.canvases import now_ms
+        return {"serverTime": now_ms()}
 
     async def viewport(self, sid: str, data: Any) -> dict[str, Any]:
         async def handle() -> dict[str, Any]:

@@ -4,6 +4,7 @@ import { has, t } from '../i18n/i18n.js';
 import { gooGeometry } from '../render/goo.js';
 import { element, toast } from './dom.js';
 import { errorText } from './errors.js';
+import { createPartsPreview } from './parts-preview.js';
 
 export { errorText };
 
@@ -12,22 +13,28 @@ export const TYPES = ['creature', 'predator', 'aquatic', 'person', 'food', 'plan
 const ICONS = { creature: '🐄', predator: '🐺', aquatic: '🐟', person: '🧍', food: '🍎', plant: '🌳', water: '💧',
   house: '🏠', explosive: '💣', vehicle: '🚗', remote: '🎮', fire: '🔥', sky: '☁️', doodle: '⭐' };
 
-export function createAlive({ canvasId, panel, stage, camera, entities, onChange, getLasso, clearLasso }) {
+export function createAlive({ canvasId, panel, stage, camera, entities, onChange, getLasso, clearLasso, restoreLasso }) {
   const goos = new Map();     // jobId -> goo being shown
-  const mine = new Set();     // jobs this client started
-  let quota = null, busy = false, error = '', chooser = null;
+  const mine = new Map();     // jobs this client started
+  let quota = null, busy = false, error = null, chooser = null;
+  const partsPreview = createPartsPreview(stage);
 
   const button = element('button', { class: 'button primary alive-go', type: 'button', 'data-i18n': 'alive.button', onclick: go });
   const left = element('span', { class: 'alive-left' });
   const problem = element('span', { class: 'alive-error', role: 'alert' });
-  panel.prepend(element('div', { class: 'alive-main' }, button, left), problem);
+  const description = element('textarea', { class: 'alive-description', rows: 2, maxlength: 1000,
+    'data-i18n-label': 'alive.description', 'data-i18n-placeholder': 'alive.descriptionHint' });
+  const descriptionLabel = element('label', { class: 'alive-description-label' },
+    element('span', { 'data-i18n': 'alive.description' }), description);
+  panel.prepend(descriptionLabel, element('div', { class: 'alive-main' }, button, left), problem);
 
   function refresh() {
     button.disabled = busy;
     left.textContent = quota ? t('alive.left', { n: Math.max(0, quota.limit - quota.used), limit: quota.limit }) : '';
-    problem.textContent = error;
+    problem.textContent = error ? errorText(error.code, error.details) : '';
     problem.hidden = !error;
     if (chooser) chooser.render();
+    partsPreview.refresh();
   }
 
   async function loadQuota() {
@@ -37,15 +44,16 @@ export function createAlive({ canvasId, panel, stage, camera, entities, onChange
   async function go() {
     const lasso = getLasso();
     if (!lasso?.closed || busy) return;
-    busy = true; error = ''; refresh();
+    partsPreview.clear();
+    busy = true; error = null; refresh();
     try {
-      const reply = await postAlive(canvasId, lasso.points);
-      mine.add(reply.jobId);
+      const reply = await postAlive(canvasId, lasso.points, description.value);
+      mine.set(reply.jobId, { lasso, description: description.value });
       quota = reply.quota;
       clearLasso();
     } catch (failure) {
       // The text stays under the lasso so the author can adjust the loop and retry.
-      error = errorText(failure.code, failure.details);
+      error = { code: failure.code, details: failure.details };
       if (failure.code === 'QUOTA_EXCEEDED') quota = { used: failure.details.used, limit: failure.details.limit };
     }
     busy = false;
@@ -111,9 +119,14 @@ export function createAlive({ canvasId, panel, stage, camera, entities, onChange
       if (goo) goo.stage = data.stage;
     } else if (name === 'alive:choose') {
       openChooser(data);
+    } else if (name === 'alive:parts') {
+      partsPreview.set(data);
     } else if (name === 'alive:failed') {
+      const request = mine.get(data.jobId);
+      const owned = !!request || chooser?.jobId === data.jobId;
       end(data.jobId, 'fizzle', now);
-      if (mine.has(data.jobId) || chooser?.jobId === data.jobId) toast(errorText(data.code));
+      if (request) { restoreLasso?.(request.lasso); description.value = request.description; error = { code: data.code }; refresh(); }
+      else if (owned) toast(errorText(data.code));
     } else if (name === 'world:event' && data.type === 'spawn') {
       entities.put(data.entity, now);
       end(data.jobId, 'pop', now);
@@ -124,9 +137,9 @@ export function createAlive({ canvasId, panel, stage, camera, entities, onChange
   loadQuota();
   return {
     goos, onEvent, refresh,
-    clearError() { if (error) { error = ''; refresh(); } },
+    clearError() { if (error) { error = null; refresh(); } },
     reposition() { chooser?.place(); },
     forget(jobId) { goos.delete(jobId); },
-    destroy: closeChooser,
+    destroy() { closeChooser(); partsPreview.destroy(); },
   };
 }

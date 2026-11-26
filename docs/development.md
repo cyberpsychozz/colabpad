@@ -32,7 +32,8 @@ COLLABPAD_PORT=8080 CORS_ORIGINS=http://localhost:8080,http://127.0.0.1:8080 doc
 
 ### Как устроен образ
 
-- `Dockerfile` собирает интерфейс в стадии Node.js (и прогоняет клиентские тесты),
+- `Dockerfile` собирает интерфейс в стадии Node.js (и прогоняет клиентские тесты,
+  включая общую с Python фикстуру `tests/golden/choreography.json`),
   зависимости Python ставит в отдельной стадии. В итоговом образе — Python, приложение,
   собранный интерфейс и `deploy/backup.py`; Node.js и исходники фронтенда туда не попадают.
 - Настройки берутся из окружения или `.env` (пример — `.env.example`). Игровые настройки и
@@ -146,3 +147,97 @@ Google Chrome; сам собирает фронтенд и поднимает с
 (push в ветку `deploy`, см. [`deploy.md`](deploy.md), шаг 11).
 
 Клиентские тесты используют встроенный `node --test`. Ruff — только внешний форматтер.
+
+## Generated animation
+
+The optional description next to ALIVE invokes choreography v1 (spec §4a). It uses the
+same `VLM_API_KEY`, `VLM_PROXY_URL` and daily budget as classification;
+`config/vlm.yaml` sets generation output tokens and performance limits.
+`parts.md` v4 identifies geometry from the image alone; after preparing the actual
+layers/pivots, `generate.md` v3 composes motion from text and fixed geometry only.
+`motion_model` / `motion_fallback_model` optionally select a separate text LLM;
+otherwise the vision models are used. Both stages share one job deadline and budget.
+Part identification uses `drawing_parts_v2` / `version:2` with explicit
+`kind:part|wheel`. Generated wheels use whole-stroke elliptical ownership so a body
+line crossing the bounding box is not cut into the rotating layer. Chunk fragments
+are joined for this check and coverage uses arc length, not sample counts. Other
+parts retain their existing splitting. Existing saved atlases are not rebuilt;
+verify this change on a newly generated drawing. Motion and canonical plans stay v1.
+Coordinate relationships are checked within the provider retry/fallback loop, so
+an invalid box or pivot can recover inside one ALIVE request. These attempts use
+the existing deadline, retry count and daily budget. Geometry errors name the part
+and offending field; only `1e-9` normalized floating-point roundoff is tolerated.
+`generation.hard_timeout_s: 90` covers the complete generated job, with
+`generation.request_timeout_s: 30` per HTTP attempt. Ordinary ALIVE still uses 25 s
+and 10 s respectively. HTTP 400/nontransient 4xx advance directly to the fallback;
+408, 429 and server errors retain the configured retry policy. Generation requests
+require endpoints supporting structured output through `provider.require_parameters`.
+Gemini motion requests use a compact schema without array `maxItems` bounds to
+avoid its "constraint ... too many states for serving" rejection. The full server
+model still checks track/key/repeat counts; Qwen and other providers receive the
+complete schema. The compact schema affects the provider's decoder only.
+The author sees a collapsible Drawing parts panel with boxes and pivot crosses;
+it persists through playback or a later failure until another ALIVE or page reload.
+`alive_job.vlm_result` records `identified`, `prepared`, `motion` and prompt versions
+for diagnostics. Strokes and consumed/fossil rows retain their existing semantics.
+The file must include the `generation` section (including `description_chars: 1000`);
+both ALIVE paths validate against it before calling the provider. After changing this
+file in a local Docker setup, rebuild the app with `docker compose up --build -d --wait`:
+the config is copied into the image, so a container restart alone does not refresh it.
+`generation.loop_pause_ms: 2000` holds the final pose for two seconds before the complete
+validated performance repeats from its fixed origin. This also applies to previously
+completed visual entities and requires no additional model calls. No new dependency
+or database migration is required. With no key, descriptions fail with a localized error;
+blank descriptions still offer the manual type grid.
+
+`tests/test_choreography.py`, `tests/test_generated_alive.py` and client tests cover the
+compiler, atlas, provider failures, isolation, sleep/freeze/recovery and shared Python/JS
+interpolation. Playwright uses `tests.browser_server` with a deterministic provider for
+text animations and an unavailable classifier for the ordinary chooser scenarios. There
+is no production fake-provider setting. `web/e2e/generated.spec.js` exercises two viewers,
+late join, reload, repeated performances with a two-second pause and editable failures in RU/EN. Set `E2E_CHROMIUM` to an
+existing Chromium executable if Google Chrome is unavailable. Real-provider quality is
+a separate budgeted check; the fake provider makes no network calls.
+
+### Diagnosing a failed animation
+
+Expected ALIVE failures now produce a WARNING even with the Docker image's default
+log level. It includes the job ID, stage, error code and the concrete failure reason,
+for example `stage=prepare code=ANIMATION_INVALID reason=part=head: ...`.
+`vlm_result.failure` retains that information with the completed provider/preparation
+results. A missing Drawing parts panel means the failure happened before its event:
+image identification, refusal or layer preparation. Contract/HTTP failures also log
+invalid field paths or upstream HTTP status and message (including OpenRouter's
+nested provider error in `error.metadata.raw`), without request images,
+action text, schema input values or API keys.
+
+After a local container rebuild, reproduce once and inspect `docker compose logs
+--tail=100 app`. No need to raise the application's log level or turn on HTTP debug
+logging. Read old job results using the application's configured path (not a guessed
+volume/file name); this also works after `docker compose down` if the data volume is
+still present:
+
+~~~bash
+docker compose run --rm --no-deps -T --entrypoint python app - <<'PY'
+from pathlib import Path
+from app.config import Settings
+import sqlite3
+settings = Settings()
+path = Path(settings.db_path).resolve()
+print('Database:', path)
+print('Files:', [p.name for p in path.parent.iterdir()] if path.parent.is_dir() else 'directory missing')
+if path.is_file():
+    connection = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
+    connection.row_factory = sqlite3.Row
+    for row in connection.execute(
+        'SELECT id,error_code,timings,vlm_result FROM alive_job '
+        'WHERE status=? ORDER BY created_at DESC LIMIT 3', ('failed',)
+    ):
+        print(dict(row))
+PY
+~~~
+
+A missing file means this Compose invocation is not reading the expected database;
+check the Compose project/data-volume selection. This read-only query never creates
+a new SQLite database. Previously swallowed preparation reasons cannot be recovered
+from old logs; the saved `identified` geometry can still help reproduce them.

@@ -20,8 +20,8 @@
   "err.STROKES_ALREADY_ALIVE": "This drawing is already alive",
   "err.ENTITY_LIMIT": "It's too crowded here — try nearby",
   "err.UNSAFE_CONTENT": "This can't be brought to life",
-  "err.VLM_TIMEOUT": "Couldn't tell what this is — pick it yourself",
-  "err.VLM_UNAVAILABLE": "Couldn't tell what this is — pick it yourself",
+  "err.VLM_TIMEOUT": "Animation generation timed out. Try again.",
+  "err.VLM_UNAVAILABLE": "Animation generation is unavailable right now. Try again later.",
   "err.CHOICE_EXPIRED": "The time to choose has run out",
   "err.CONTROL_TAKEN": "Someone else is driving right now",
   "err.PAYMENT_FAILED": "Payment failed",
@@ -41,5 +41,10 @@
   "billing.description.plus_month": "CollabPad Plus, 1 month",
   "billing.description.plus_year": "CollabPad Plus, 1 year",
   "err.CODE_INVALID": "Wrong code. Tries left: {left}",
-  "err.CODE_EXPIRED": "This code has expired or run out of tries — request a new one"
+  "err.CODE_EXPIRED": "This code has expired or run out of tries — request a new one",
+  "err.ANIMATION_INVALID": "The animation could not be prepared. Edit the description and try again.",
+  "err.ANIMATION_OTHER_ACTORS": "Describe only the selected drawing’s movement, without other actors or targets.",
+  "err.ANIMATION_GAMEPLAY": "This animation can only move the drawing and its parts, without gameplay actions.",
+  "err.ANIMATION_MISSING_PARTS": "The required parts were not found in the drawing. Draw them or edit the description.",
+  "err.ANIMATION_UNSUPPORTED": "This description could not be fulfilled. Try describing the movement differently."
 }

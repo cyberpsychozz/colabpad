@@ -9,8 +9,8 @@ const BACKOFF = [1000, 2000, 4000];
 
 export class WorldSync {
   constructor({ canvasId, store, onState, onError, onChange = () => {}, onEvent = () => {}, onChunk = () => {},
-    transport, fetchChunk = getChunk, sleep = wait }) {
-    Object.assign(this, { canvasId, store, onState, onError, onChange, onEvent, onChunk, fetchChunk, sleep });
+    onClock = () => {}, transport, fetchChunk = getChunk, sleep = wait }) {
+    Object.assign(this, { canvasId, store, onState, onError, onChange, onEvent, onChunk, onClock, fetchChunk, sleep });
     this.socket = transport || io({ autoConnect: false });
     this.outbox = [];
     this.wanted = [];
@@ -25,6 +25,7 @@ export class WorldSync {
       this.epoch++; this.ready = false; this.refetchAll = true;
       this.state();
       this.requestViewport();
+      this.syncClock();
     });
     this.socket.on('disconnect', () => { this.epoch++; this.ready = false; this.state(); });
     this.socket.on('connect_error', () => { this.ready = false; this.state(); });
@@ -34,14 +35,23 @@ export class WorldSync {
     this.socket.on('stroke:fate', ({ seqs, fate, entityId }) => {
       if (!this.stopped && this.store.applyFate(seqs, fate, entityId)) this.onChange();
     });
-    for (const name of ['alive:goo', 'alive:progress', 'alive:choose', 'alive:failed', 'world:event',
+    for (const name of ['alive:goo', 'alive:progress', 'alive:parts', 'alive:choose', 'alive:failed', 'world:event',
       'world:snapshot', 'world:delta', 'control:granted', 'control:revoked', 'canvas:frozen']) {
       this.socket.on(name, data => { if (!this.stopped) this.onEvent(name, data); });
     }
   }
 
-  start() { this.socket.connect(); }
-  stop() { this.stopped = true; this.epoch++; this.ready = false; this.socket.disconnect(); }
+  async syncClock() {
+    const sent = performance.now();
+    try {
+      const reply = await this.ack('world:clock', {});
+      const received = performance.now();
+      if (Number.isFinite(reply.serverTime)) this.onClock(reply.serverTime, sent, received);
+    } catch { /* Reconnect retries the clock sample. */ }
+  }
+
+  start() { this.socket.connect(); this.clockTimer = setInterval(() => this.syncClock(), 30000); }
+  stop() { clearInterval(this.clockTimer); this.stopped = true; this.epoch++; this.ready = false; this.socket.disconnect(); }
   state() { if (!this.stopped) this.onState({ connected: this.ready, pending: this.outbox.length }); }
 
   ack(event, data) {

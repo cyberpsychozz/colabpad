@@ -48,6 +48,8 @@ class Control:
         self.realtime.require_role(sid, canvas_id, "player")
         if entity is None or self.sim.canvas_of.get(entity_id) != canvas_id:
             raise AppError("NOT_FOUND")
+        if entity.get("mode") == "scripted_visual":
+            raise AppError("VALIDATION_FAILED", "entityId")
         return canvas_id, entity
 
     # ---- pet, push, drag

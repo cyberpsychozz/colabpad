@@ -5,7 +5,9 @@ Heavy steps run off the event loop. Quota is spent only on success or UNSAFE_CON
 """
 
 import asyncio
+import base64
 import io
+import json
 import logging
 import sqlite3
 import time
@@ -18,7 +20,9 @@ from uuid import uuid4
 
 from PIL import Image
 
+from app.alive.preparation import prepare_atlas
 from app.alive.bake import save_sprite, single_frame_manifest
+from app.alive.choreography import combine, compile_plan, pose
 from app.alive.postprocess import Classified, postprocess, size_class
 from app.alive.rasterize import Cutout, rasterize
 from app.alive.rig import area_polygon
@@ -56,8 +60,12 @@ class Job:
     polygon: list[tuple[float, float]]
     strokes: list[dict[str, Any]]
     rooms: list[str]
+    description: str = ""
+    scripted: dict[str, Any] | None = None
     choice: asyncio.Future[str] | None = None
     timings: dict[str, int] = field(default_factory=dict)
+    stage: str = "queued"
+    started_at: float | None = None
 
     @property
     def seqs(self) -> list[int]:
@@ -136,29 +144,45 @@ class AliveService:
     # ---- step 1-3: request
 
     def submit(
-        self, canvas: dict[str, Any], session: dict[str, Any], polygon: list[tuple[float, float]]
+        self,
+        canvas: dict[str, Any],
+        session: dict[str, Any],
+        polygon: list[tuple[float, float]],
+        description: str = "",
     ) -> tuple[Job, dict[str, int]]:
         """Validate, select and lock strokes, and queue the job. Synchronous on purpose."""
         repo = self.get_repo()
         if canvas["frozen"]:
             raise AppError("CANVAS_FROZEN")
+        description = description.strip()
+        if len(description) > self.config.vlm["generation"]["description_chars"]:
+            raise AppError("VALIDATION_FAILED", "description")
         subject = repo.subject_of(session)
         quota = self.quota(session)
         # Jobs still running count, so a burst cannot overspend the day.
         if quota["used"] + self.inflight[subject] >= quota["limit"]:
-            raise AppError("QUOTA_EXCEEDED", details={**quota, **self.upgrade_hint(quota["plan"])})
+            raise AppError(
+                "QUOTA_EXCEEDED", details={**quota, **self.upgrade_hint(quota["plan"])}
+            )
         last = self.last_request.get(subject)
         if last is not None and self.monotonic() - last < self.limits["min_interval_s"]:
             raise AppError("RATE_LIMITED")
         if self.queue.qsize() >= self.limits["queue"]["max_queued"]:
             raise AppError("RATE_LIMITED")
-        strokes = select_strokes(repo, canvas, polygon, self.config.limits, self.chunk_size)
+        strokes = select_strokes(
+            repo, canvas, polygon, self.config.limits, self.chunk_size
+        )
         x0, y0, x1, y1 = bbox(polygon)
         caps = self.config.limits["population"]
         size = self.chunk_size
         cx, cy = int((x0 + x1) / 2 // size), int((y0 + y1) / 2 // size)
-        here = repo.living_in_rect(canvas["id"], cx * size, cy * size, (cx + 1) * size, (cy + 1) * size)
-        if len(here) >= caps["living_per_chunk"] or repo.count_living(canvas["id"]) >= caps["living_per_world"]:
+        here = repo.living_in_rect(
+            canvas["id"], cx * size, cy * size, (cx + 1) * size, (cy + 1) * size
+        )
+        if (
+            len(here) >= caps["living_per_chunk"]
+            or repo.count_living(canvas["id"]) >= caps["living_per_world"]
+        ):
             raise AppError("ENTITY_LIMIT")
         job = Job(
             id=str(uuid4()),
@@ -167,6 +191,7 @@ class AliveService:
             subject=subject,
             polygon=polygon,
             strokes=strokes,
+            description=description,
             rooms=sorted(
                 {room(canvas["id"], (s["cx"], s["cy"])) for s in strokes}
                 | {
@@ -195,19 +220,25 @@ class AliveService:
     async def worker(self) -> None:
         while True:
             job = await self.queue.get()
+            job.started_at = self.monotonic()
             try:
                 await self.run(job)
+            except TimeoutError:
+                await self.fail(job, "VLM_TIMEOUT" if job.description else "INTERNAL", "job/provider time budget exceeded")
             except AppError as error:
-                await self.fail(job, error.code)
-            except Exception:
+                await self.fail(job, error.code, str(error.__cause__ or error))
+            except Exception as error:
                 logger.exception("ALIVE job %s failed", job.id)
-                await self.fail(job, "INTERNAL")
+                await self.fail(job, "INTERNAL", type(error).__name__)
             finally:
                 self.locks.release(job.id)
                 self.inflight[job.subject] -= 1
                 self.jobs.pop(job.id, None)
 
     async def run(self, job: Job) -> None:
+        if job.description:
+            await self.run_generated(job)
+            return
         repo, started = self.get_repo(), self.monotonic()
         hard = self.limits["hard_timeout_s"]
 
@@ -215,12 +246,18 @@ class AliveService:
             job.timings[name] = round((self.monotonic() - started) * 1000)
 
         async with asyncio.timeout(hard):
+            job.stage = "raster"
             repo.update_job(job.id, status="raster")
             cutout = await asyncio.to_thread(
-                rasterize, job.strokes, self.limits["raster_long_side"], self.limits["raster_pad"]
+                rasterize,
+                job.strokes,
+                self.limits["raster_long_side"],
+                self.limits["raster_pad"],
             )
             lap("raster")
-            long_side = (max(cutout.image.size) - 2 * self.limits["raster_pad"]) / cutout.scale
+            long_side = (
+                max(cutout.image.size) - 2 * self.limits["raster_pad"]
+            ) / cutout.scale
             sizes = self.config.balance["size_class_px"]
             repo.update_job(job.id, status="classify")
             await self.progress(job, "classify")
@@ -232,15 +269,24 @@ class AliveService:
                     # past that the author picks the type (never a dead end).
                     left = hard - (self.monotonic() - started) - RIG_RESERVE_S
                     try:
-                        result = await asyncio.wait_for(self.vlm.classify(png), max(1.0, left))
+                        result = await asyncio.wait_for(
+                            self.vlm.classify(png), max(1.0, left)
+                        )
                     except TimeoutError:
                         raise VlmError("VLM_TIMEOUT", "out of time") from None
                     repo.update_job(
                         job.id,
-                        vlm_result={"prompt": self.vlm.prompt_version, **result.model_dump()},
+                        vlm_result={
+                            "prompt": self.vlm.prompt_version,
+                            **result.model_dump(),
+                        },
                     )
                     classified = postprocess(
-                        result, self.config.labels, long_side, sizes, self.limits["confidence_min"]
+                        result,
+                        self.config.labels,
+                        long_side,
+                        sizes,
+                        self.limits["confidence_min"],
                     )
                 except VlmError as error:
                     # Not shown as an error: the author gets the manual grid instead.
@@ -256,7 +302,9 @@ class AliveService:
         async with asyncio.timeout(hard):
             repo.update_job(job.id, status="rig", chosen_type=classified.type)
             await self.progress(job, "rig")
-            sheet, manifest, shrink = await asyncio.to_thread(self.rig, cutout, classified)
+            sheet, manifest, shrink = await asyncio.to_thread(
+                self.rig, cutout, classified
+            )
             polygon = (
                 await asyncio.to_thread(area_polygon, cutout.image)
                 if classified.type == "water"
@@ -267,15 +315,145 @@ class AliveService:
                 save_sprite, self.settings.sprites_dir, sprite_id, cutout.image, sheet
             )
             lap("rig")
-        entity = self.spawn(job, classified, cutout, sprite_id, paths, manifest, shrink, polygon)
-        await self.realtime.emit(
-            "stroke:fate", {"seqs": job.seqs, "fate": "consumed", "entityId": entity["id"]}, job.rooms
+        entity = self.spawn(
+            job, classified, cutout, sprite_id, paths, manifest, shrink, polygon
         )
-        # Into the world first, so the event carries the live shape (with its delta handle, ref).
+        await self.announce_spawn(job, entity)
+
+    async def announce_spawn(self, job: Job, entity: dict[str, Any]) -> None:
+        await self.realtime.emit(
+            "stroke:fate",
+            {"seqs": job.seqs, "fate": "consumed", "entityId": entity["id"]},
+            job.rooms,
+        )
         live = self.on_spawn(entity)
         await self.realtime.emit(
-            "world:event", {"type": "spawn", "jobId": job.id, "entity": live or entity}, job.rooms
+            "world:event",
+            {"type": "spawn", "jobId": job.id, "entity": live or entity},
+            job.rooms,
         )
+
+    async def run_generated(self, job: Job) -> None:
+        repo = self.get_repo()
+        started = self.monotonic()
+        hard = self.config.vlm["generation"].get("hard_timeout_s", 90)
+        async with asyncio.timeout(hard):
+            job.stage = "raster"
+            repo.update_job(job.id, status="raster")
+            cutout = await asyncio.to_thread(
+                rasterize,
+                job.strokes,
+                self.limits["raster_long_side"],
+                self.limits["raster_pad"],
+            )
+            repo.update_job(job.id, status="classify")
+            await self.progress(job, "parts")
+            if not self.config.flags.vlm.enabled:
+                raise AppError("VLM_UNAVAILABLE")
+            png = await asyncio.to_thread(self.png, cutout.on_white())
+            trace = {"partsPrompt": self.vlm.parts_prompt_version,
+                     "prompt": self.vlm.generation_prompt_version}
+
+            async def call(operation):
+                left = hard - (self.monotonic() - started) - RIG_RESERVE_S
+                try:
+                    return await asyncio.wait_for(operation, max(0.01, left))
+                except VlmError as exc:
+                    raise AppError(exc.code) from exc
+
+            def check(outcome):
+                explanation = ValueError(f"provider status={outcome.status} reason={outcome.reason}")
+                if outcome.status == "unsafe":
+                    raise AppError("UNSAFE_CONTENT") from explanation
+                if outcome.status == "multiple":
+                    raise AppError("SELECTION_MULTIPLE") from explanation
+                if outcome.status == "unsupported":
+                    codes = {
+                        "other_actors": "ANIMATION_OTHER_ACTORS",
+                        "gameplay": "ANIMATION_GAMEPLAY",
+                        "missing_parts": "ANIMATION_MISSING_PARTS",
+                        "cannot_satisfy": "ANIMATION_UNSUPPORTED",
+                    }
+                    raise AppError(codes.get(outcome.reason, "ANIMATION_UNSUPPORTED")) from explanation
+                if outcome.reason is not None:
+                    raise AppError("ANIMATION_INVALID") from explanation
+
+            identified = await call(self.vlm.identify_parts(png))
+            job.timings["parts"] = round((self.monotonic() - started) * 1000)
+            trace["identified"] = identified.model_dump()
+            repo.update_job(job.id, vlm_result=trace)
+            check(identified)
+            limits = self.config.vlm["generation"]
+            job.stage = "prepare"
+            try:
+                drawing, sheet, manifest = await asyncio.to_thread(
+                    prepare_atlas, cutout, identified, limits["parts"]
+                )
+            except ValueError as exc:
+                raise AppError("ANIMATION_INVALID") from exc
+            trace["prepared"] = drawing.model_dump()
+            job.timings["prepare"] = round((self.monotonic() - started) * 1000)
+            repo.update_job(job.id, vlm_result=trace)
+            preview = {"jobId": job.id, "drawing": drawing.model_dump(), "size": list(cutout.image.size),
+                       "image": "data:image/png;base64," + base64.b64encode(png).decode("ascii")}
+            await self.realtime.emit("alive:parts", preview, [session_room(job.session_id)])
+            await self.progress(job, "generate")
+            motion = await call(self.vlm.animate(drawing.model_copy(deep=True), job.description))
+            job.timings["generate"] = round((self.monotonic() - started) * 1000)
+            trace["motion"] = motion.model_dump()
+            repo.update_job(job.id, vlm_result=trace)
+            check(motion)
+            result = combine(drawing, motion)
+            pad = self.limits["raster_pad"]
+            width, height = (
+                (cutout.image.width - 2 * pad) / cutout.scale,
+                (cutout.image.height - 2 * pad) / cutout.scale,
+            )
+            origin = [
+                cutout.x + cutout.image.width / 2 / cutout.scale,
+                cutout.y + cutout.image.height / 2 / cutout.scale,
+            ]
+            repo.update_job(job.id, status="rig")
+            await self.progress(job, "rig")
+            job.stage = "compile"
+            try:
+                canvas = repo.get_canvas(job.canvas_id)
+                plan = await asyncio.to_thread(
+                    compile_plan,
+                    result,
+                    width,
+                    height,
+                    limits=limits,
+                    layers=manifest["layers"],
+                    origin=origin,
+                    bounds=(canvas["bounds_w"], canvas["bounds_h"]),
+                )
+            except ValueError as exc:
+                raise AppError("ANIMATION_INVALID") from exc
+            job.scripted = {
+                "mode": "scripted_visual",
+                "plan": plan,
+                "origin": origin,
+                "promptVersion": self.vlm.generation_prompt_version,
+                "partsPromptVersion": self.vlm.parts_prompt_version,
+                "data": {"playback": {"elapsed": 0, "revision": 0,
+                                      "pauseMs": limits.get("loop_pause_ms", 2000)}},
+            }
+            classified = self.retype(
+                None,
+                "doodle",
+                size_class(max(width, height), self.config.balance["size_class_px"]),
+            )
+            classified.label = result.label.model_dump()
+            sprite_id = str(uuid4())
+            job.stage = "save"
+            paths = await asyncio.to_thread(
+                save_sprite, self.settings.sprites_dir, sprite_id, cutout.image, sheet
+            )
+            job.timings["generated"] = round((self.monotonic() - started) * 1000)
+            job.stage = "spawn"
+            entity = self.spawn(job, classified, cutout, sprite_id, paths, manifest)
+        await self.announce_spawn(job, entity)
 
     @staticmethod
     def png(image: Image.Image) -> bytes:
@@ -284,6 +462,7 @@ class AliveService:
         return buffer.getvalue()
 
     async def progress(self, job: Job, stage: str) -> None:
+        job.stage = stage
         await self.realtime.emit("alive:progress", {"jobId": job.id, "stage": stage}, job.rooms)
 
     async def ask(self, job: Job, choices: list[str] | None) -> str:
@@ -291,6 +470,7 @@ class AliveService:
 
         Never a dead end: after the deadline the first guess (or a living scribble) wins.
         """
+        job.stage = "choose"
         timeout = self.limits["choose_timeout_s"]
         job.choice = asyncio.get_running_loop().create_future()
         self.get_repo().update_job(job.id, status="choose")
@@ -366,7 +546,42 @@ class AliveService:
         height = (cutout.image.height - 2 * pad) / cutout.scale
         x = cutout.x + pad / cutout.scale + width / 2
         y = cutout.y + pad / cutout.scale + height / 2
-        health = (self.config.archetypes[classified.type]["components"].get("Health") or {}).get("hp", 100)
+        origin_x, origin_y = x, y
+        if job.scripted:
+            initial = pose(job.scripted["plan"], 0, "root")
+            x += initial["x"]
+            y += initial["y"]
+        health = (
+            self.config.archetypes[classified.type]["components"].get("Health") or {}
+        ).get("hp", 100)
+        if job.scripted:
+            health = 100
+        # Preparation can outlive a subscription change or another spawn. Recheck
+        # all permissions/caps before the transaction consumes any strokes.
+        canvas = repo.get_canvas(job.canvas_id)
+        if canvas["frozen"]:
+            raise AppError("CANVAS_FROZEN")
+        if job.scripted:
+            session = repo.get_session(job.session_id)
+            if session is None or repo.role_of(canvas, session) != "editor":
+                raise AppError("FORBIDDEN_ROLE")
+            caps = self.config.limits["population"]
+            size = self.chunk_size
+            here = repo.living_in_rect(
+                job.canvas_id,
+                int(x // size) * size,
+                int(y // size) * size,
+                (int(x // size) + 1) * size,
+                (int(y // size) + 1) * size,
+            )
+            if (
+                len(here) >= caps["living_per_chunk"]
+                or sum(e["label"].get("en") == classified.label["en"] for e in here)
+                >= caps["per_label_per_chunk"]
+            ):
+                raise AppError("ENTITY_LIMIT")
+            if repo.count_living(job.canvas_id) >= caps["living_per_world"]:
+                raise AppError("WORLD_LIMIT")
         entity_id = str(uuid4())
         repo.db.execute("BEGIN IMMEDIATE")
         try:
@@ -379,10 +594,16 @@ class AliveService:
                     "sprite_id": sprite_id,
                     "archetype": classified.type,
                     "label": classified.label,
-                    "x": x, "y": y, "vx": 0.0, "vy": 0.0,
+                    "x": x,
+                    "y": y,
+                    "vx": 0.0,
+                    "vy": 0.0,
                     "facing": classified.facing,
                     "state": "idle",
-                    "hp": health, "hunger": 0.0, "thirst": 0.0, "energy": 100.0,
+                    "hp": health,
+                    "hunger": 0.0,
+                    "thirst": 0.0,
+                    "energy": 100.0,
                     "params": {
                         "w": round(width, 1),
                         "h": round(height, 1),
@@ -390,7 +611,10 @@ class AliveService:
                         # A drawn area (water) in world coordinates.
                         "polygon": polygon
                         and [
-                            [round(cutout.x + px / cutout.scale, 1), round(cutout.y + py / cutout.scale, 1)]
+                            [
+                                round(cutout.x + px / cutout.scale, 1),
+                                round(cutout.y + py / cutout.scale, 1),
+                            ]
                             for px, py in polygon
                         ],
                         "sizeClass": classified.size_class,
@@ -399,13 +623,20 @@ class AliveService:
                         "role": classified.role,
                         "variant": classified.variant,
                         "parts": classified.parts,
+                        **(job.scripted or {}),
                     },
-                    "origin_x": x, "origin_y": y,
+                    "origin_x": origin_x,
+                    "origin_y": origin_y,
                     "summoner_session_id": job.session_id,
                     "born_at": now_ms(),
                 }  # fmt: skip
             )
-            repo.update_job(job.id, status="spawned", chosen_type=classified.type, timings=job.timings)
+            repo.update_job(
+                job.id,
+                status="spawned",
+                chosen_type=classified.type,
+                timings=job.timings,
+            )
             repo.spend_quota(job.subject, self.day())
             repo.db.execute("COMMIT")
         except sqlite3.IntegrityError as exc:
@@ -420,10 +651,17 @@ class AliveService:
         assert entity is not None
         return entity
 
-    async def fail(self, job: Job, code: str) -> None:
+    async def fail(self, job: Job, code: str, reason: str = "") -> None:
         """The goo fizzles and the strokes stay. Only UNSAFE_CONTENT costs quota."""
         repo = self.get_repo()
-        repo.update_job(job.id, status="failed", error_code=code, timings=job.timings)
+        reason = reason or code
+        logger.warning("ALIVE job %s failed: stage=%s code=%s reason=%s", job.id, job.stage, code, reason)
+        stored = repo.get_job(job.id)
+        trace = json.loads(stored["vlm_result"]) if stored and stored["vlm_result"] else {}
+        trace["failure"] = {"stage": job.stage, "code": code, "reason": reason}
+        if job.started_at is not None:
+            job.timings["total"] = round((self.monotonic() - job.started_at) * 1000)
+        repo.update_job(job.id, status="failed", error_code=code, timings=job.timings, vlm_result=trace)
         if code == "UNSAFE_CONTENT":
             repo.spend_quota(job.subject, self.day())
         await self.realtime.emit("alive:failed", {"jobId": job.id, "code": code}, job.rooms)

@@ -446,3 +446,72 @@ def pivot_of(region: Region, ink: np.ndarray, joints: list[tuple[float, float]],
         return float(x), float(y)
     (x0, y0), (x1, _) = ink.min(axis=0), ink.max(axis=0)
     return float((x0 + x1) / 2), float(y0)
+
+
+def wheel_owner(cutout: Cutout, points: list[list[float]], wheels: list[Region]) -> int | None:
+    """A logical stroke can belong to one wheel in full, never as a box crop."""
+    if not wheels or not points:
+        return None
+    frame = (np.array(points)[:, :2] - [cutout.x, cutout.y]) * cutout.scale
+    lengths = np.linalg.norm(np.diff(frame, axis=0), axis=1)
+    total = lengths.sum()
+    middle = (frame[:-1] + frame[1:]) / 2 if total else frame[:1]
+    center = np.average(middle, axis=0, weights=lengths) if total else frame[0]
+    candidates = []
+    for region in wheels:
+        inside = region.in_circle(middle[:, 0], middle[:, 1])
+        share = float(lengths @ inside / total) if total else float(inside[0])
+        if share >= WHEEL_INSIDE:
+            candidates.append((-share, region.closeness(*center), region.index))
+    return min(candidates)[2] if candidates else None
+
+
+def split_named(cutout: Cutout, parts: list[Any]) -> dict[str, list[Stroke]]:
+    """Arbitrary model-identified parts, without anatomical guesses or added lines.
+
+    Wheels take whole logical strokes contained mostly in their ellipse. Other
+    parts use sampled rectangular regions; adjacent pieces share their junction.
+    """
+    w, h = cutout.image.size
+    found = [Region(p.id, i, p.box[0]*w, p.box[1]*h,
+                    (p.box[0]+p.box[2])*w, (p.box[1]+p.box[3])*h) for i,p in enumerate(parts)]
+    wheels = [r for r in found if getattr(parts[r.index], 'kind', None) == 'wheel']
+    others = [r for r in found if r not in wheels]
+    result = {'body': [], **{p.id: [] for p in parts}}
+    for chain in chains(cutout.strokes or []):
+        sampled = [(stroke, curve(stroke['points'], STEP_PX / cutout.scale)) for stroke in chain]
+        logical = ([p for i, (_, points) in enumerate(sampled) for p in (points if i == 0 else points[1:])]
+                   if wheels else [])
+        wheel = wheel_owner(cutout, logical, wheels)
+        if wheel is not None:
+            result[parts[wheel].id].extend(chain)
+            continue
+        for stroke, points in sampled:
+            labels = []
+            for x,y,_ in points:
+                fx,fy = (x-cutout.x)*cutout.scale,(y-cutout.y)*cutout.scale
+                inside = [r for r in others if r.contains(fx,fy)]
+                labels.append(min(inside,key=lambda r:r.closeness(fx,fy)).index if inside else -1)
+            labels = smooth(labels)
+            # A limb drawn in one stroke keeps its short attachment stub even when
+            # the model's box starts below the shoulder. This never joins two parts.
+            stretches = runs(labels)
+            if len(stretches) == 2 and -1 in labels:
+                owner = next(label for label in labels if label != -1)
+                total = sum(math.dist(a[:2], b[:2]) for a, b in zip(points, points[1:]))
+                owned = sum(math.dist(points[i][:2], points[i+1][:2])
+                            for label, start, end in stretches if label == owner
+                            for i in range(start, end))
+                if (getattr(parts[owner], 'pivot_type', None) == 'joint'
+                        and owned >= 0.6 * total):
+                    labels = [owner] * len(labels)
+            if len(set(labels)) == 1:
+                owner = 'body' if labels[0] == -1 else parts[labels[0]].id
+                result[owner].append(stroke)
+                continue
+            for label,start,end in runs(labels):
+                owner = 'body' if label == -1 else parts[label].id
+                piece = points[start:min(len(points),end+2)]
+                if len(piece) >= 2:
+                    result[owner].append({**stroke, 'points': piece, 'dense': True})
+    return result

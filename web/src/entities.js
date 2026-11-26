@@ -1,4 +1,5 @@
 // Entities known to this client: latest server state plus a smoothed render position.
+import { ServerClock, playbackTime, pose, layerCorners } from './choreography.js';
 import { chunkKey } from './chunks.js';
 
 const DEATH_MS = 750;
@@ -11,6 +12,7 @@ export class EntityStore {
     this.byHandle = new Map(); // world:delta names entities by a short number (ref)
     this.ghosts = [];          // entities playing their death animation
     this.images = new Map();
+    this.clock = new ServerClock();
   }
 
   #key(entity) { return chunkKey(Math.floor(entity.x / this.size), Math.floor(entity.y / this.size)); }
@@ -19,6 +21,11 @@ export class EntityStore {
   put(entity, bornAt = null) {
     if (entity.ref != null) this.byHandle.set(entity.ref, entity.id);
     const known = this.entities.get(entity.id);
+    const incoming = entity.view?.playback, previous = known?.view?.playback;
+    if (incoming && previous && (incoming.serverTime < previous.serverTime ||
+      incoming.serverTime === previous.serverTime && incoming.revision < previous.revision)) {
+      entity = { ...entity, view: known.view };
+    }
     this.entities.set(entity.id, {
       rx: entity.x, ry: entity.y, dir: 0, animStart: 0, ...known, ...entity,
       chunk: this.#key(entity), bornAt: bornAt ?? known?.bornAt ?? null,
@@ -43,7 +50,8 @@ export class EntityStore {
       if (Math.abs(x - entity.x) > 0.5) entity.dir = x > entity.x ? 1 : -1;
       if (anim !== entity.anim) entity.animStart = now;
       Object.assign(entity, { x, y, state, anim, hp, chunk: key });
-      if (view) entity.view = view;
+      if (view && (!view.playback || !entity.view?.playback || view.playback.serverTime > entity.view.playback.serverTime ||
+        view.playback.serverTime === entity.view.playback.serverTime && view.playback.revision >= entity.view.playback.revision)) entity.view = view;
     }
     // An id that left this chunk stays if it has since been seen in another one.
     for (const ref of gone) {
@@ -71,6 +79,14 @@ export class EntityStore {
     const blend = Math.min(1, seconds * 12);
     let moving = false;
     for (const entity of this.entities.values()) {
+      if (entity.mode === 'scripted_visual') {
+        const elapsed = playbackTime(entity, this.clock.now(now));
+        const root = pose(entity.plan, elapsed, 'root');
+        entity.rx = entity.origin[0] + root.x; entity.ry = entity.origin[1] + root.y;
+        entity.playhead = elapsed;
+        moving ||= !!entity.view?.playback?.running;
+        continue;
+      }
       const dx = entity.x - entity.rx, dy = entity.y - entity.ry;
       // A jump (a drag, a knockback, first sight) is not animated.
       if (Math.abs(dx) > 200 || Math.abs(dy) > 200) { entity.rx = entity.x; entity.ry = entity.y; continue; }
@@ -95,6 +111,20 @@ export class EntityStore {
   at(x, y) {
     let found = null;
     for (const entity of this.entities.values()) {
+      if (entity.mode === 'scripted_visual') {
+        const px = x - entity.rx, py = y - entity.ry;
+        const hit = entity.sprite.manifest.layers.some(layer => {
+          const corners = layerCorners(layer, entity.plan, entity.playhead || 0);
+          // Convex transformed quadrilateral; accepts either winding.
+          const cross = corners.map(([ax, ay], i) => {
+            const [bx, by] = corners[(i + 1) % 4];
+            return (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+          });
+          return cross.every(v => v >= 0) || cross.every(v => v <= 0);
+        });
+        if (hit && (!found || entity.ry > found.ry)) found = entity;
+        continue;
+      }
       const size = EntityStore.sizeOf(entity);
       const halfW = (entity.w || 40) * size / 2 + 8, halfH = (entity.h || 40) * size / 2 + 8;
       if (Math.abs(x - entity.rx) <= halfW && Math.abs(y - entity.ry) <= halfH && (!found || entity.ry > found.ry)) found = entity;

@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 
 from app.config import GameConfig
+from app.sim import scripted
 from app.sim.ecs import Entity, resolve_components
 from app.sim.systems import decide, interact, life, needs, steer
 from app.sim.systems.perception import SpatialHash
@@ -20,7 +21,7 @@ from app.sim.systems.perception import SpatialHash
 ACT_STATES = {"eat", "drink", "attack", "mate", "act", "fish", "heal"}
 ARRAYS = ("x", "y", "vx", "vy", "gx", "gy", "speed", "base_speed", "slow", "hp", "max_hp",
           "hunger", "thirst", "energy", "sent_x", "sent_y", "sent_hp")  # fmt: skip
-MASKS = ("alive", "active", "has_goal", "arrived", "has_needs", "has_thirst", "resting", "touched")
+MASKS = ("alive", "active", "has_goal", "arrived", "has_needs", "has_thirst", "resting", "touched", "scripted_mask")
 
 
 class World:
@@ -52,6 +53,7 @@ class World:
         self.slots: list[Entity | None] = [None] * self.capacity
         self.free: list[int] = list(range(self.capacity - 1, -1, -1))
         self.entities: dict[str, Entity] = {}
+        self.visuals: set[str] = set()
         self.by_type: dict[str, set[str]] = {}
         self.hash = SpatialHash()
         self.subscribed: set[tuple[int, int]] = set()
@@ -95,7 +97,11 @@ class World:
         entity = Entity(i, row, comps, self.t)
         self.slots[i] = entity
         self.entities[entity.id] = entity
-        self.by_type.setdefault(entity.type, set()).add(entity.id)
+        if entity.scripted:
+            self.visuals.add(entity.id)
+        self.by_type.setdefault(entity.type, set())
+        if not entity.scripted:
+            self.by_type[entity.type].add(entity.id)
         max_hp = float(entity.get("Health", "hp", 100))
         speeds = self.balance["speed"]
         mode = entity.get("Locomotion", "mode", "none")
@@ -115,6 +121,7 @@ class World:
         for name in MASKS:
             getattr(self, name)[i] = False
         self.alive[i] = True
+        self.scripted_mask[i] = entity.scripted
         self.has_needs[i] = entity.has("Needs")
         self.has_thirst[i] = entity.has("Needs") and entity.get("Needs", "thirst", True)
         entity.chunk = self.chunk_of(row["x"], row["y"])
@@ -128,6 +135,7 @@ class World:
         if self.entities.pop(entity.id, None) is None:
             return
         self.by_type[entity.type].discard(entity.id)
+        self.visuals.discard(entity.id)
         self.hot.discard(entity.id)
         self.inputs.pop(entity.id, None)
         self.cache.pop(entity.id, None)
@@ -164,7 +172,7 @@ class World:
             dx, dy = xs[i] - x, ys[i] - y
             if dx * dx + dy * dy <= r2:
                 found.append(other)
-        return found
+        return [e for e in found if not e.scripted]
 
     def nearest(self, entity: Entity, radius: float, wanted: Any) -> Entity | None:
         x, y = self.pos(entity)
@@ -219,14 +227,14 @@ class World:
                          "tick": self.tick_n, "type": kind, **payload})  # fmt: skip
 
     def damage(self, entity: Entity, amount: float, cause: str) -> None:
-        if entity.has("Health") and self.alive[entity.i]:
+        if not entity.scripted and entity.has("Health") and self.alive[entity.i]:
             self.hp[entity.i] -= amount
             entity.data["cause"] = cause
             entity.dirty = True
 
     def kill(self, entity: Entity, fossil: bool, cause: str = "") -> None:
         """Remove from the world. fossil: its strokes turn into a grey fossil where it died."""
-        if entity.id not in self.entities:
+        if entity.id not in self.entities or entity.scripted:
             return
         x, y = self.pos(entity)
         decide.brain(entity).on_remove(self, entity)
@@ -276,12 +284,16 @@ class World:
             since = self.slept_at.pop((cx, cy), None)
             if since is not None and self.config.flags.sleep_catchup:
                 self._catch_up((cx, cy), min(self.t - since, self.balance["sleep_catchup_max_s"]))
+        for entity_id in self.visuals:
+            scripted.checkpoint(self, self.entities[entity_id])
 
     def _in_chunk(self, chunk: tuple[int, int]) -> list[Entity]:
         return [e for e in self.entities.values() if self.chunk_of(*self.pos(e)) == chunk]
 
     def _sleeping(self, chunk: tuple[int, int]) -> None:
         for entity in self._in_chunk(chunk):
+            if entity.scripted:
+                scripted.checkpoint(self, entity)
             entity.dirty = True  # goes out with the next snapshot
 
     def _catch_up(self, chunk: tuple[int, int], elapsed: float) -> None:
@@ -293,8 +305,14 @@ class World:
 
     # ---- the tick
 
+    def set_frozen(self, frozen: bool) -> None:
+        self.frozen = frozen
+        for entity_id in self.visuals:
+            scripted.checkpoint(self, self.entities[entity_id])
+
     def tick(self, dt: float) -> None:
         if self.frozen:
+            self._deltas()
             return
         self.tick_n += 1
         self.t += dt
@@ -305,10 +323,13 @@ class World:
         indices = np.nonzero(self.active)[0]
         interact.apply_inputs(self, dt)       # 1. inputs
         needs.run(self, dt)                   # 2. needs
-        self.hash.rebuild(indices, self.x, self.y)  # 3. perception
-        decide.run(self, indices)             # 4. decision (staggered) + 6. interactions
+        physical = indices[~self.scripted_mask[indices]]
+        self.hash.rebuild(physical, self.x, self.y)  # 3. perception
+        decide.run(self, physical)             # 4. decision (staggered) + 6. interactions
         steer.run(self, dt)                   # 5. steering
-        life.run(self, indices, dt)           # 7. births, deaths
+        life.run(self, physical, dt)           # 7. births, deaths
+        for entity_id in self.visuals:
+            scripted.checkpoint(self, self.entities[entity_id], dt)
         self._deltas()                        # 8. deltas and events
         if self.t - self.last_snapshot >= 5:  # 9. dirty entities go to main
             self.snapshot()
@@ -328,6 +349,8 @@ class World:
             | (hp_pct != self.sent_hp)
             | self.touched
         )
+        # Pause/wake checkpoints must also leave sleeping/frozen chunks.
+        changed |= self.touched & self.scripted_mask
         per_chunk: dict[tuple[int, int], dict[str, list[Any]]] = {}
         for i in np.nonzero(changed)[0].tolist():
             entity = self.slots[i]

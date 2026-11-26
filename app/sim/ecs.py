@@ -42,6 +42,10 @@ class Entity:
         self.in_water = False
         self.sprite_id: str | None = row.get("sprite_id")
 
+    @property
+    def scripted(self) -> bool:
+        return self.params.get("mode") == "scripted_visual"
+
     def has(self, name: str) -> bool:
         return name in self.comps
 
@@ -69,6 +73,8 @@ def resolve_components(
     archetype: dict[str, Any], params: dict[str, Any]
 ) -> dict[str, dict[str, Any]]:
     """The archetype's components with `from_vlm` values taken from the entity's params."""
+    if params.get("mode") == "scripted_visual":
+        return {}
     resolved: dict[str, dict[str, Any]] = {}
     variant = params.get("variant")
     for name, spec in archetype["components"].items():

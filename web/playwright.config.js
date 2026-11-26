@@ -1,9 +1,9 @@
 // End-to-end scenarios from docs/spec.md §12, in two browser clients (npm run e2e).
 //
 // The real server runs on a throwaway database and a copy of config/ with test-sized
-// timings (a short fuse, a small anonymous quota, no pause between ALIVEs) and with the
-// VLM switched off, so every ALIVE goes through the manual type grid and nothing costs
-// money. The browser is the installed Google Chrome (no Playwright browser download).
+// timings (a short fuse, a small anonymous quota, no pause between ALIVEs). Classification
+// is unavailable (the manual type grid); generation uses a deterministic fake provider.
+// Nothing costs money. The browser is installed Chrome, or E2E_CHROMIUM when specified.
 // Robokassa gets made-up test credentials; the scenarios stop the browser before it would
 // leave for Robokassa's page and post the ResultURL notification themselves (from 127.0.0.1,
 // which this copy of config/billing.yaml allows). The server's log goes to server.log in the
@@ -51,13 +51,13 @@ export default defineConfig({
   reporter: [['list']],
   outputDir: join(DIR, 'results'),
   use: {
-    channel: 'chrome',
+    ...(process.env.E2E_CHROMIUM ? { launchOptions: { executablePath: process.env.E2E_CHROMIUM } } : { channel: 'chrome' }),
     screenshot: 'only-on-failure',
     baseURL: `http://127.0.0.1:${PORT}`,
     viewport: { width: 1100, height: 760 },
   },
   webServer: {
-    command: `env -u PYTHONPATH .venv/bin/python -m app 2>&1 | tee '${join(DIR, 'server.log')}' >&2`,
+    command: `env -u PYTHONPATH .venv/bin/python -m tests.browser_server 2>&1 | tee '${join(DIR, 'server.log')}' >&2`,
     cwd: ROOT,
     url: `http://127.0.0.1:${PORT}/api/health`,
     reuseExistingServer: false,

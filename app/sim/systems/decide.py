@@ -50,7 +50,7 @@ def register(name: str) -> Any:
 
 
 def brain(entity: "Entity") -> Brain:
-    return REGISTRY.get(entity.type, _DEFAULT)
+    return _DEFAULT if entity.scripted else REGISTRY.get(entity.type, _DEFAULT)
 
 
 def run(world: "World", indices: "np.ndarray") -> None:
@@ -66,4 +66,4 @@ def run(world: "World", indices: "np.ndarray") -> None:
         entity.next_think = tick + every
         dt = world.t - entity.last_think
         entity.last_think = world.t
-        REGISTRY.get(entity.type, _DEFAULT).think(world, entity, dt)
+        brain(entity).think(world, entity, dt)

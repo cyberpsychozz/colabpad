@@ -210,8 +210,15 @@ class SimBridge:
         if wire is None:
             return
         health = (self.config.archetypes[row["type"]]["components"].get("Health") or {}).get("hp")
+        if row["params"].get("mode") == "scripted_visual":
+            health = None
         wire["hp"] = round(row["hp"] / health * 100) if health and row.get("hp") is not None else 100
         wire["view"] = (row["params"].get("data") or {}).get("view") or {}
+        if row["params"].get("mode") == "scripted_visual":
+            playback = (row["params"].get("data") or {}).get("playback") or {"elapsed":0,"revision":0}
+            wire["view"] = {"playback":{**playback,
+                "pauseMs":self.config.vlm.get("generation", {}).get("loop_pause_ms", 2000),
+                "running":False,"serverTime":now_ms()}}
         wire["anim"] = "idle"
         wire["ref"] = self.handle_of(row["id"])
         self.live[row["id"]] = wire
