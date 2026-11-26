@@ -160,5 +160,7 @@ def build_payments(
     if not (login and password1 and password2):
         logger.warning("Robokassa (%s mode) is not configured: checkout is off", mode)
         return UnconfiguredPayments()
-    logger.info("Robokassa: %s mode", mode)
+    # Warning, not info: production runs uvicorn with --log-level warning, and the mode (real
+    # money or not) has to show up in its log.
+    logger.warning("Robokassa: %s mode", mode)
     return Robokassa(http, login, password1, password2, algorithm, test=test)
