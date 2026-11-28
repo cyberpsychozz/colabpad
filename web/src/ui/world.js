@@ -31,6 +31,9 @@ export async function openWorld(root, canvasId) {
   const loading = element('div', { class: 'world-loading' }, element('span', { class: 'spinner' }), element('h2', { 'data-i18n': 'canvas.loading' }));
   const lassoPanel = element('div', { class: 'lasso-panel', hidden: true });
   const stage = element('div', { class: 'world-stage' }, canvas, hint, lassoPanel, loading);
+  let showCursors = false;
+  const cursors = new Map();
+  let cursorBtn = null;
   const bar = element('header', { class: 'world-bar' }, brand(), status, accountButton(), languageSwitch());
   const body = element('div', { class: 'world-body' }, stage);
   const page = element('div', { class: 'world' }, bar, body);
@@ -119,6 +122,15 @@ export async function openWorld(root, canvasId) {
     } else if (name === 'canvas:frozen') {
       // Roles and tools change with it: start the screen again from the server's answer.
       if (data.frozen !== config.frozen) location.reload();
+    } else if (name === 'canvas:kicked') {
+      location.replace('/w');
+    } else if (name === 'canvas:role') {
+      if (data.role !== config.role) location.reload();
+    } else if (name === 'cursor:move') {
+      const prev = cursors.get(data.id);
+      cursors.set(data.id, prev ? { ...data, rx: prev.rx, ry: prev.ry, at: now } : { ...data, rx: data.x, ry: data.y, at: now });
+    } else if (name === 'cursor:leave') {
+      cursors.delete(data.id);
     } else if (name.startsWith('control:')) control.onEvent(name, data);
     else alivePanel.onEvent(name, data);
     schedule();
@@ -130,7 +142,7 @@ export async function openWorld(root, canvasId) {
     status.lastChild.textContent = !connected ? t('canvas.offline') : pending ? t('canvas.saving', { n: pending }) : t('canvas.connected');
     canvas.dataset.tool = spaceDown ? 'hand' : tools.state.tool;
     let text = '';
-    if (config.frozen) text = t('canvas.frozen');
+    if (config.frozen) text = t(config.owner ? 'canvas.frozenOwner' : 'canvas.frozen');
     else if (tools.state.tool === 'alive' && !lasso?.closed) text = t('alive.hint');
     else if (started && canEdit && !store.hasStrokes() && !sync.outbox.length && !active) text = t('canvas.empty');
     hint.textContent = text;
@@ -153,6 +165,36 @@ export async function openWorld(root, canvasId) {
       if (dx || dy) { camera.panBy(-dx, -dy); cameraChanged(); }
     }
     const animating = drawWorld(ctx, { camera, store, dpr: dpr(), pending, lasso, entities, goos: alivePanel.goos, vfx, driving: control.vehicleId, now });
+    if (config.kind === 'private' && showCursors && cursors.size) {
+      const scale = dpr();
+      ctx.save();
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      ctx.font = '600 12px Inter, "Segoe UI", Arial, sans-serif';
+      let cursorMoving = false;
+      for (const [id, c] of cursors) {
+        if (now - c.at > 6000) { cursors.delete(id); continue; }
+        c.rx += (c.x - c.rx) * 0.35;
+        c.ry += (c.y - c.ry) * 0.35;
+        if (Math.hypot(c.x - c.rx, c.y - c.ry) > 0.5) cursorMoving = true;
+        const [sx, sy] = camera.toScreen(c.rx, c.ry);
+        ctx.fillStyle = c.color;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + 12, sy + 5);
+        ctx.lineTo(sx + 5, sy + 12);
+        ctx.closePath();
+        ctx.fill();
+        const label = `${c.role === 'editor' ? '✎ ' : '▶ '}${c.name}`;
+        const padX = 6, w = ctx.measureText(label).width + padX * 2;
+        ctx.beginPath();
+        ctx.roundRect(sx + 10, sy + 10, w, 20, 6);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, sx + 10 + padX, sy + 24);
+      }
+      ctx.restore();
+      if (cursorMoving) schedule();
+    }
     alivePanel.reposition();
     control.refresh();
     if (animating || moving) schedule();
@@ -196,6 +238,15 @@ export async function openWorld(root, canvasId) {
   const pointers = new Map();
   let mode = null, spaceDown = false, pinch = null, grab = null, lastClick = { id: null, at: 0 };
   const canPlay = config.role === 'editor' || config.role === 'player';
+  if (config.kind === 'private') {
+    showCursors = true;
+    cursorBtn = element('button', { class: 'button quiet', type: 'button', onclick: () => {
+      showCursors = !showCursors;
+      cursorBtn.textContent = t(showCursors ? 'cursors.hide' : 'cursors.show');
+      schedule();
+    } }, t('cursors.hide'));
+    bar.insertBefore(cursorBtn, bar.children[2]);
+  }
   const draggable = new Set(['food', 'explosive', 'remote', 'doodle']);
   const local = event => { const rect = canvas.getBoundingClientRect(); return [event.clientX - rect.left, event.clientY - rect.top]; };
   const measure = () => {
@@ -266,6 +317,16 @@ export async function openWorld(root, canvasId) {
     }
     if (mode) event.preventDefault();
   }
+
+  let lastCursorSent = 0;
+  canvas.addEventListener('pointermove', event => {
+    if (config.kind !== 'private' || !canPlay) return;
+    const nowMs = performance.now();
+    if (nowMs - lastCursorSent < 50) return;
+    lastCursorSent = nowMs;
+    const [wx, wy] = camera.toWorld(...local(event));
+    sync.send('cursor:move', { x: wx, y: wy });
+  });
 
   function onMove(event) {
     const previous = pointers.get(event.pointerId);

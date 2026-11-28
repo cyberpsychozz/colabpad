@@ -1363,6 +1363,8 @@ footer {
 .inline-form input:not([type=range]) { margin-bottom:0; flex:1; min-width:0 }
 .inline-form .button { padding:11px 14px; white-space:nowrap }
 .world-list { display:flex; flex-direction:column; gap:6px; margin-bottom:18px }
+.world-row { display:flex; align-items:center; gap:6px }
+.world-row .world-link { flex:1; min-width:0 }
 .world-link { display:flex; justify-content:space-between; gap:12px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; text-decoration:none; color:inherit; background:#fff }
 .world-link small { color:var(--muted) }
 .member-list { list-style:none; padding:0; margin:0 0 16px; display:flex; flex-direction:column; gap:6px }

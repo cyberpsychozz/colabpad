@@ -1,5 +1,5 @@
 // The account button and its dialog: sign in with an e-mailed code, plan, my worlds, sign out.
-import { ApiError, getWorlds, postLoginCode, postLogout, postVerifyCode, postWorld } from '../api.js';
+import { ApiError, deleteWorld, getWorlds, leaveWorld, patchWorld, postLoginCode, postLogout, postVerifyCode, postWorld } from '../api.js';
 import { getLocale, t } from '../i18n/i18n.js';
 import { currentMe } from '../me.js';
 import { element, localize, modal } from './dom.js';
@@ -129,19 +129,54 @@ function signedIn(body, me) {
 async function fillWorlds(box, plus) {
   let list;
   try { list = await getWorlds(); } catch (error) { box.replaceChildren(element('p', {}, errorText(error.code))); return; }
-  const link = world => element('a', { class: 'world-link', href: `/p/${world.id}` },
-    element('span', {}, world.title || world.id),
-    element('small', {}, world.frozen ? t('account.frozen') : t(`roles.${world.role}`)));
-  const rows = [...list.owned, ...list.shared].map(link);
-  const title = element('input', { type: 'text', maxlength: 60, required: true, 'data-i18n-label': 'account.newWorld', placeholder: t('account.newWorld') });
   const problem = element('p', { class: 'form-error', role: 'alert' });
+  const run = async fn => {
+    problem.textContent = '';
+    try { await fn(); await fillWorlds(box, plus); }
+    catch (error) { problem.textContent = errorText(error.code, error.details); }
+  };
+  const row = (world, owned) => {
+    const link = element('a', { class: 'world-link', href: `/p/${world.id}` },
+      element('span', {}, world.title || world.id),
+      element('small', {}, world.frozen ? t('account.frozen') : t(`roles.${world.role}`)));
+    const controls = owned
+      ? [
+          element('button', { class: 'icon-button small', type: 'button', 'aria-label': t('account.rename'), onclick: () => {
+            const input = element('input', { type: 'text', maxlength: 60, required: true, value: world.title || '' });
+            const form = element('form', { class: 'inline-form', onsubmit: event => {
+              event.preventDefault();
+              run(() => patchWorld(world.id, input.value.trim()));
+            } }, input, element('button', { class: 'button primary', type: 'submit' }, '✓'),
+            element('button', { class: 'button', type: 'button', onclick: () => fillWorlds(box, plus) }, '×'));
+            link.parentElement.replaceWith(form);
+            input.focus();
+          } }, '✎'),
+          element('button', { class: 'icon-button small', type: 'button', 'aria-label': t('account.delete'), onclick: () => run(() => deleteWorld(world.id)) }, '×'),
+        ]
+      : [
+          element('button', { class: 'icon-button small', type: 'button', 'aria-label': t('account.leave'), onclick: () => run(async () => {
+            await leaveWorld(world.id);
+            if (location.pathname === `/p/${world.id}`) location.replace('/w');
+          }) }, '×'),
+        ];
+    return element('div', { class: 'world-row' }, link, ...controls);
+  };
+  const rows = [
+    ...list.owned.map(w => row(w, true)),
+    ...list.shared.map(w => row(w, false)),
+  ];
+  const title = element('input', { type: 'text', maxlength: 60, required: true, 'data-i18n-label': 'account.newWorld', placeholder: t('account.newWorld') });
   const create = element('form', { class: 'inline-form', onsubmit: async event => {
     event.preventDefault();
     try { location.href = `/p/${(await postWorld(title.value.trim())).id}`; }
     catch (error) { problem.textContent = errorText(error.code, error.details); }
   } }, title, element('button', { class: 'button primary', type: 'submit', 'data-i18n': 'account.create' }));
-  box.replaceChildren(...rows,
+  const sharedWorldLink = location.pathname !== '/w'
+    ? [element('a', { class: 'world-link', href: '/w' }, element('span', { 'data-i18n': 'account.sharedWorld' }))]
+    : [];
+  box.replaceChildren(...sharedWorldLink, ...rows,
     !rows.length ? element('p', { class: 'small-note', 'data-i18n': plus ? 'account.noWorlds' : 'account.worldsNeedPlus' }) : '',
-    ...(plus && list.owned.length < list.max ? [create, problem] : []));
+    ...(plus && list.owned.length < list.max ? [create] : []),
+    problem);
   localize(box);
 }

@@ -47,7 +47,7 @@ class CanvasRepo:
 
     def get_canvas(self, canvas_id: str) -> dict[str, Any]:
         row = self.db.execute(
-            "SELECT * FROM canvas WHERE id=?", (canvas_id,)
+            "SELECT * FROM canvas WHERE id=? AND deleted_at IS NULL", (canvas_id,)
         ).fetchone()
         if row is None:
             raise AppError("NOT_FOUND")
@@ -58,19 +58,22 @@ class CanvasRepo:
     ROLES = ("none", "viewer", "player", "editor")
 
     def role_of(self, canvas: dict[str, Any], session: dict[str, Any] | None) -> str:
-        """Owner is editor; otherwise the better of the link role and the member role.
+        """Owner is editor; explicit member role overrides the link role.
 
         A frozen world lets everyone watch and nothing more."""
         user_id = session.get("user_id") if session else None
         if canvas["kind"] == "world" or (user_id and canvas["owner_user_id"] == user_id):
             role = "editor"
         else:
-            row = self.db.execute(
-                "SELECT role FROM canvas_member WHERE canvas_id=? AND user_id=?",
-                (canvas["id"], user_id),
-            ).fetchone()
-            member = row["role"] if row else "none"
-            role = max(canvas["link_role"], member, key=self.ROLES.index)
+            row = (
+                self.db.execute(
+                    "SELECT role FROM canvas_member WHERE canvas_id=? AND user_id=?",
+                    (canvas["id"], user_id),
+                ).fetchone()
+                if user_id
+                else None
+            )
+            role = row["role"] if row else canvas["link_role"]
         if canvas["frozen"] and role != "none":
             return "viewer"
         return role
@@ -79,7 +82,8 @@ class CanvasRepo:
         return [
             dict(row)
             for row in self.db.execute(
-                "SELECT * FROM canvas WHERE owner_user_id=? ORDER BY created_at", (user_id,)
+                "SELECT * FROM canvas WHERE owner_user_id=? AND deleted_at IS NULL ORDER BY created_at",
+                (user_id,),
             )
         ]
 
@@ -88,10 +92,29 @@ class CanvasRepo:
             dict(row)
             for row in self.db.execute(
                 "SELECT c.*, m.role AS member_role FROM canvas c JOIN canvas_member m"
-                " ON m.canvas_id=c.id WHERE m.user_id=? ORDER BY m.created_at",
+                " ON m.canvas_id=c.id WHERE m.user_id=? AND c.deleted_at IS NULL ORDER BY m.created_at",
                 (user_id,),
             )
         ]
+
+    def rename_canvas(self, canvas_id: str, title: str) -> dict[str, Any]:
+        """Update a private canvas title."""
+        self.db.execute("UPDATE canvas SET title=? WHERE id=? AND deleted_at IS NULL", (title, canvas_id))
+        return self.get_canvas(canvas_id)
+
+    def delete_canvas(self, canvas_id: str) -> None:
+        """Soft-delete a private canvas and revoke its members and link access."""
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            self.db.execute(
+                "UPDATE canvas SET deleted_at=?, link_role='none' WHERE id=? AND deleted_at IS NULL",
+                (now_ms(), canvas_id),
+            )
+            self.db.execute("DELETE FROM canvas_member WHERE canvas_id=?", (canvas_id,))
+            self.db.execute("COMMIT")
+        except BaseException:
+            self.db.execute("ROLLBACK")
+            raise
 
     def set_link_role(self, canvas_id: str, role: str) -> None:
         self.db.execute("UPDATE canvas SET link_role=? WHERE id=?", (role, canvas_id))

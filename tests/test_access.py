@@ -72,13 +72,13 @@ def test_rest_role_matrix(application: FastAPI, client: TestClient) -> None:
     assert guest.get("/api/canvases").json()["shared"][0]["id"] == world
     assert client.post(f"/api/canvases/{world}/members", json={"email": "host@example.org", "role": "player"}).status_code == 400
 
-    # Promote to editor, then a link role above the member role wins too.
+    # Explicit member role overrides the link role (even if the link role is higher).
     changed = client.patch(f"/api/canvases/{world}/members/{friend['id']}", json={"role": "editor"})
     assert changed.json()["members"] == [{"userId": friend["id"], "email": "friend@example.org", "role": "editor"}]
     assert can(guest) == (200, 200, 422)
     client.patch(f"/api/canvases/{world}/members/{friend['id']}", json={"role": "viewer"})
     client.put(f"/api/canvases/{world}/access", json={"linkRole": "editor"})
-    assert can(guest) == (200, 200, 422) and can(stranger) == (200, 200, 422)
+    assert can(guest) == (200, 200, 403) and can(stranger) == (200, 200, 422)
 
     # Removing the member and closing the link shuts the world again.
     assert client.delete(f"/api/canvases/{world}/members/{friend['id']}").status_code == 204
@@ -154,3 +154,61 @@ def test_locale_is_saved_for_the_session_and_the_account(application: FastAPI, c
     client.put("/api/me/locale", json={"locale": "en"})
     row = application.state.repo.db.execute("SELECT locale FROM app_user WHERE id=?", (user["id"],)).fetchone()
     assert row[0] == "en" and client.get("/api/me").json()["locale"] == "en"
+
+
+def test_rename_delete_and_leave_private_worlds(application: FastAPI, client: TestClient) -> None:
+    _, world = make_world(application, client, title="Old Farm")
+    guest, stranger = browser(application), browser(application)
+    friend = sign_in(application, guest, "friend@example.org")
+    client.post(f"/api/canvases/{world}/members", json={"email": "friend@example.org", "role": "editor"})
+
+    # Rename: owner only, non-empty after strip, never the shared world.
+    assert guest.patch(f"/api/canvases/{world}", json={"title": "Hack"}).status_code == 403
+    assert client.patch("/api/canvases/world", json={"title": "Mine"}).status_code == 403
+    assert client.patch(f"/api/canvases/{world}", json={"title": "   "}).status_code == 400
+    renamed = client.patch(f"/api/canvases/{world}", json={"title": "  New Farm  "})
+    assert renamed.status_code == 200 and renamed.json()["title"] == "New Farm"
+    assert client.get(f"/api/canvases/{world}").json()["title"] == "New Farm"
+
+    # Changing a member's role online triggers realtime.recheck.
+    recheck = AsyncMock()
+    application.state.realtime.recheck = recheck
+    assert client.patch(f"/api/canvases/{world}/members/{friend['id']}", json={"role": "viewer"}).status_code == 200
+    recheck.assert_awaited_once_with(world)
+
+    # Leave: unauthenticated 401, owner 403, non-member 404, member 204 + kick.
+    assert stranger.delete(f"/api/canvases/{world}/members/me").status_code == 401
+    sign_in(application, stranger, "stranger@example.org")
+    assert stranger.delete(f"/api/canvases/{world}/members/me").status_code == 404
+    assert client.delete(f"/api/canvases/{world}/members/me").status_code == 403
+    kick = AsyncMock()
+    application.state.realtime.kick = kick
+    assert guest.delete(f"/api/canvases/{world}/members/me").status_code == 204
+    kick.assert_awaited_once_with(world, friend["id"])
+    assert guest.get("/api/canvases").json()["shared"] == []
+
+    # Delete: owner only, never the shared world; frees the slot and drops sockets.
+    assert guest.delete(f"/api/canvases/{world}").status_code == 403
+    assert client.delete("/api/canvases/world").status_code == 403
+    recheck.reset_mock()
+    assert client.delete(f"/api/canvases/{world}").status_code == 204
+    recheck.assert_awaited_once_with(world)
+    assert client.get(f"/api/canvases/{world}").status_code == 404
+    assert client.get("/api/canvases").json()["owned"] == []
+
+
+def test_kick_emits_and_disconnects_member(application: FastAPI, client: TestClient) -> None:
+    _, world = make_world(application, client)
+    realtime, repo = application.state.realtime, application.state.repo
+    realtime.sio.emit = AsyncMock()
+    realtime.sio.disconnect = AsyncMock()
+    guest = browser(application)
+    friend = sign_in(application, guest, "friend@example.org")
+    realtime.sessions["guest"] = repo.cookie_session(guest.cookies["cp_session"])["id"]
+    realtime.sessions["owner"] = repo.cookie_session(client.cookies["cp_session"])["id"]
+    realtime.rooms.viewports["guest"] = (world, set())
+    realtime.rooms.viewports["owner"] = (world, set())
+    asyncio.run(realtime.kick(world, friend["id"]))
+    realtime.sio.emit.assert_awaited_once_with("canvas:kicked", {"canvasId": world}, to="guest")
+    realtime.sio.disconnect.assert_awaited_once_with("guest")
+
