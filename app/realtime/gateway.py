@@ -3,6 +3,8 @@
 import asyncio
 import json
 import logging
+import math
+import zlib
 from collections.abc import Callable
 from typing import Any
 
@@ -52,11 +54,13 @@ class Realtime:
         self.write_lock = asyncio.Lock()
         self.locales: dict[str, str] = {}
         self.sessions: dict[str, str] = {}
+        self.cursors_meta: dict[str, tuple[str, str]] = {}
         self.sim: Any = None  # the SimBridge, once started
         self.sio.on("connect", self.connect)
         self.sio.on("viewport:set", self.viewport)
         self.sio.on("stroke:add", self.add)
         self.sio.on("disconnect", self.disconnect)
+        self.sio.on("cursor:move", self.quiet(self.cursor))
         self.control = Control(self, config.limits)
         for event, handler in (
             ("entity:interact", self.control.interact),
@@ -90,10 +94,43 @@ class Realtime:
         repo = self.get_repo()
         return repo.role_of(repo.get_canvas(canvas_id), repo.get_session(self.sessions.get(sid)))
 
+    async def _revoke_if_held(self, sid: str, canvas_id: str) -> None:
+        held = self.control.lease_of(sid)
+        if held is not None and held[1].canvas_id == canvas_id:
+            await self.control.revoke(held[0], "released")
+
     async def recheck(self, canvas_id: str) -> None:
-        """Access changed: sockets that may no longer watch are dropped and must rejoin."""
+        """Access changed: drop sockets that lost view access and revoke driving leases below player."""
+        repo = self.get_repo()
+        try:
+            canvas = repo.get_canvas(canvas_id)
+        except AppError:
+            canvas = None
         for sid, (watched, _) in list(self.rooms.viewports.items()):
-            if watched == canvas_id and self.role(sid, canvas_id) == "none":
+            if watched == canvas_id:
+                role = repo.role_of(canvas, repo.get_session(self.sessions.get(sid))) if canvas else "none"
+                if self.ROLES.index(role) < self.ROLES.index("player"):
+                    await self._revoke_if_held(sid, canvas_id)
+                    if self.cursors_meta.pop(sid, None) is not None:
+                        for peer, (watched2, _) in list(self.rooms.viewports.items()):
+                            if watched2 == canvas_id and peer != sid:
+                                await self.sio.emit("cursor:leave", {"id": sid}, to=peer)
+                if role == "none":
+                    await self.sio.emit("canvas:kicked", {"canvasId": canvas_id}, to=sid)
+                    await self.sio.disconnect(sid)
+                else:
+                    await self.sio.emit("canvas:role", {"role": role}, to=sid)
+
+    async def kick(self, canvas_id: str, user_id: str) -> None:
+        """Immediately eject a user's active sockets from a private canvas."""
+        repo = self.get_repo()
+        for sid, (watched, _) in list(self.rooms.viewports.items()):
+            if watched != canvas_id:
+                continue
+            session = repo.get_session(self.sessions.get(sid))
+            if session and session.get("user_id") == user_id:
+                await self._revoke_if_held(sid, canvas_id)
+                await self.sio.emit("canvas:kicked", {"canvasId": canvas_id}, to=sid)
                 await self.sio.disconnect(sid)
 
     async def frozen(self, canvas_id: str, frozen: bool) -> None:
@@ -241,7 +278,54 @@ class Realtime:
 
         return await self.guarded(sid, "Stroke submission", handle)
 
+    async def cursor(self, sid: str, data: Any) -> None:
+        """Broadcast a user's pointer position to other viewers on the same canvas."""
+        canvas_id = self.rooms.canvas_of(sid)
+        if not canvas_id or not isinstance(data, dict):
+            return
+        repo = self.get_repo()
+        canvas = repo.get_canvas(canvas_id)
+        if canvas["kind"] != "private":
+            return
+        role = repo.role_of(canvas, repo.get_session(self.sessions.get(sid)))
+        if self.ROLES.index(role) < self.ROLES.index("player"):
+            return
+        x, y = data.get("x"), data.get("y")
+        if not (isinstance(x, (int, float)) and isinstance(y, (int, float)) and math.isfinite(x) and math.isfinite(y)):
+            return
+        meta = self.cursors_meta.get(sid)
+        if meta is None:
+            session = repo.get_session(self.sessions.get(sid))
+            raw = None
+            if session and session.get("user_id"):
+                row = repo.db.execute("SELECT email FROM app_user WHERE id=?", (session["user_id"],)).fetchone()
+                if row:
+                    raw = row["email"].split("@")[0]
+            if not raw:
+                raw = (session.get("nickname") if session else None) or (
+                    "Гость" if self.locales.get(sid) == "ru" else "Guest"
+                )
+            palette = ("#e11d48", "#2563eb", "#059669", "#d97706", "#7c3aed", "#db2777", "#0891b2", "#65a30d")
+            used = {
+                m[1]
+                for peer, (watched, _) in self.rooms.viewports.items()
+                if watched == canvas_id and peer != sid and (m := self.cursors_meta.get(peer)) is not None
+            }
+            color = next((c for c in palette if c not in used), palette[zlib.crc32(sid.encode()) % len(palette)])
+            meta = self.cursors_meta[sid] = (raw[:14], color)
+        name, color = meta
+        payload = {"id": sid, "x": float(x), "y": float(y), "name": name, "color": color, "role": role}
+        for peer, (watched, _) in list(self.rooms.viewports.items()):
+            if watched == canvas_id and peer != sid:
+                await self.sio.emit("cursor:move", payload, to=peer)
+
     async def disconnect(self, sid: str, reason: str | None = None) -> None:
+        canvas_id = self.rooms.canvas_of(sid)
+        self.cursors_meta.pop(sid, None)
+        if canvas_id:
+            for peer, (watched, _) in list(self.rooms.viewports.items()):
+                if watched == canvas_id and peer != sid:
+                    await self.sio.emit("cursor:leave", {"id": sid}, to=peer)
         await self.control.disconnect(sid)
         self.rooms.drop(sid)
         self.locales.pop(sid, None)

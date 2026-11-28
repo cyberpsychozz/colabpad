@@ -25,10 +25,10 @@ export async function openShare(canvasId) {
     try { draw(await action()); } catch (error) { problem.textContent = error.code === 'VALIDATION_FAILED' ? t('account.badEmail') : errorText(error.code, error.details); }
   };
   const url = `${location.origin}/p/${canvasId}`;
+  let inviteRole = 'player';
 
   function draw(access) {
     const email = element('input', { type: 'email', required: true, maxlength: 254, placeholder: t('share.email'), 'aria-label': t('share.email') });
-    let inviteRole = 'player';
     const members = access.members.map(member => element('li', {},
       element('span', {}, member.email),
       roleSelect(MEMBER_ROLES, member.role, t('share.role'), role => attempt(() => patchMember(canvasId, member.userId, role))),

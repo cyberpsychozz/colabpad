@@ -3,15 +3,18 @@
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
-# The only migration: 2 → 3 moved payments from YooKassa to Robokassa (docs/spec.md §5).
-# YooKassa's payment rows are kept, renamed, because payment rows are never deleted.
+# The only migrations: 2 → 3 moved payments from YooKassa to Robokassa (docs/spec.md §5),
+# 3 → 4 adds soft-delete for private canvases so immutable strokes stay intact.
 MIGRATIONS = {
     2: """
         ALTER TABLE payment RENAME TO payment_yookassa;
         ALTER TABLE subscription DROP COLUMN yk_payment_method_id;
         ALTER TABLE subscription ADD COLUMN parent_inv_id INTEGER;
+    """,
+    3: """
+        ALTER TABLE canvas ADD COLUMN deleted_at INTEGER;
     """,
 }
 
@@ -38,15 +41,16 @@ def connect(path: str) -> sqlite3.Connection:
     if version in MIGRATIONS and has_tables:
         connection.execute("BEGIN IMMEDIATE")
         try:
-            for statement in filter(str.strip, MIGRATIONS[version].split(";")):
-                connection.execute(statement)
+            while version in MIGRATIONS:
+                for statement in filter(str.strip, MIGRATIONS[version].split(";")):
+                    connection.execute(statement)
+                version += 1
             connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             connection.execute("COMMIT")
         except BaseException:
             connection.execute("ROLLBACK")
             connection.close()
             raise
-        version = SCHEMA_VERSION
     if version != SCHEMA_VERSION and has_tables:
         connection.close()
         # Anything else has no migration: the old file is discarded by a human, never by us.
@@ -54,6 +58,6 @@ def connect(path: str) -> sqlite3.Connection:
             f"{path} was created by another version of CollabPad. "
             "Move or delete it and start again (see docs/deploy.md)."
         )
-    connection.executescript(Path(__file__).with_name("schema.sql").read_text())
+    connection.executescript(Path(__file__).with_name("schema.sql").read_text(encoding="utf-8"))
     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     return connection

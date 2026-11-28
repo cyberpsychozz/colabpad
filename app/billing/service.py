@@ -173,7 +173,7 @@ class Billing:
                 # confirms at ResultURL makes the subscription active again.
                 repo.set_subscription_status(subscription["user_id"], "past_due")
                 await self.renew(subscription)
-        for canvas in repo.db.execute("SELECT * FROM canvas WHERE kind='private'").fetchall():
+        for canvas in repo.db.execute("SELECT * FROM canvas WHERE kind='private' AND deleted_at IS NULL").fetchall():
             frozen = self.lapsed(repo.get_subscription(canvas["owner_user_id"]), now)
             if frozen != bool(canvas["frozen"]):
                 repo.set_frozen(canvas["id"], frozen)

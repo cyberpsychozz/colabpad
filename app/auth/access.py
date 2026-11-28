@@ -66,6 +66,30 @@ def access_router() -> APIRouter:
         state.sim.ensure_world(canvas)
         return {"id": canvas["id"], "kind": "private"}
 
+    @router.patch("/{canvas_id}")
+    async def rename(
+        canvas_id: str, body: CanvasIn, request: Request, session: Session
+    ) -> dict[str, Any]:
+        canvas = owned(request, canvas_id, session)
+        if canvas["kind"] != "private":
+            raise AppError("FORBIDDEN_ROLE")
+        title = body.title.strip()
+        if not title:
+            raise AppError("VALIDATION_FAILED", "title")
+        updated = request.app.state.repo.rename_canvas(canvas_id, title)
+        return summary(updated, request.app.state.repo.role_of(updated, session))
+
+    @router.delete("/{canvas_id}", status_code=204)
+    async def delete(canvas_id: str, request: Request, session: Session) -> Response:
+        canvas = owned(request, canvas_id, session)
+        if canvas["kind"] != "private":
+            raise AppError("FORBIDDEN_ROLE")
+        state = request.app.state
+        state.repo.delete_canvas(canvas_id)
+        await state.realtime.recheck(canvas_id)
+        state.sim.drop_world(canvas_id)
+        return Response(status_code=204)
+
     @router.get("/{canvas_id}/access")
     async def get_access(canvas_id: str, request: Request, session: Session) -> dict[str, Any]:
         owned(request, canvas_id, session)
@@ -97,6 +121,7 @@ def access_router() -> APIRouter:
         ):
             raise AppError("WORLD_LIMIT", details={"limit": len(members)})
         repo.set_member(canvas_id, user["id"], body.role, session["user_id"])
+        await state.realtime.recheck(canvas_id)
         locale = pick_locale(None, user["locale"] or session["locale"])
         params = {
             "title": canvas["title"] or canvas_id,
@@ -121,14 +146,27 @@ def access_router() -> APIRouter:
         owned(request, canvas_id, session)
         if not request.app.state.repo.update_member(canvas_id, user_id, body.role):
             raise AppError("NOT_FOUND")
+        await request.app.state.realtime.recheck(canvas_id)
         return access(request, canvas_id)
+
+    @router.delete("/{canvas_id}/members/me", status_code=204)
+    async def leave(canvas_id: str, request: Request, session: Session) -> Response:
+        if not session["user_id"]:
+            raise AppError("UNAUTHENTICATED")
+        canvas = request.app.state.repo.get_canvas(check_id(canvas_id))
+        if canvas["owner_user_id"] == session["user_id"]:
+            raise AppError("FORBIDDEN_ROLE")
+        if not request.app.state.repo.remove_member(canvas_id, session["user_id"]):
+            raise AppError("NOT_FOUND")
+        await request.app.state.realtime.kick(canvas_id, session["user_id"])
+        return Response(status_code=204)
 
     @router.delete("/{canvas_id}/members/{user_id}", status_code=204)
     async def remove(canvas_id: str, user_id: str, request: Request, session: Session) -> Response:
         owned(request, canvas_id, session)
         if not request.app.state.repo.remove_member(canvas_id, user_id):
             raise AppError("NOT_FOUND")
-        await request.app.state.realtime.recheck(canvas_id)
+        await request.app.state.realtime.kick(canvas_id, user_id)
         return Response(status_code=204)
 
     return router

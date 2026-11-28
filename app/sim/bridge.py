@@ -154,7 +154,7 @@ class SimBridge:
         """Tell a fresh simulation about every canvas, living entity and subscription."""
         repo = self.get_repo()
         self.live.clear()
-        for canvas in repo.db.execute("SELECT id, bounds_w, bounds_h, frozen FROM canvas").fetchall():
+        for canvas in repo.db.execute("SELECT id, bounds_w, bounds_h, frozen FROM canvas WHERE deleted_at IS NULL").fetchall():
             self.send({"op": "world", "canvas": canvas["id"], "bounds": [canvas["bounds_w"], canvas["bounds_h"]]})
             if canvas["frozen"]:
                 self.send({"op": "freeze", "canvas": canvas["id"], "frozen": True})
@@ -203,6 +203,13 @@ class SimBridge:
 
     def ensure_world(self, canvas: dict[str, Any]) -> None:
         self.send({"op": "world", "canvas": canvas["id"], "bounds": [canvas["bounds_w"], canvas["bounds_h"]]})
+
+    def drop_world(self, canvas_id: str) -> None:
+        """Remove a deleted private world from the live simulation."""
+        for entity_id in [eid for eid, cid in self.canvas_of.items() if cid == canvas_id]:
+            self.canvas_of.pop(entity_id, None)
+            self.live.pop(entity_id, None)
+        self.send({"op": "drop", "canvas": canvas_id})
 
     def add(self, row: dict[str, Any]) -> None:
         """Hand an entity to the simulation and start tracking its live state."""

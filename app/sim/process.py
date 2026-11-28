@@ -55,6 +55,8 @@ class SimCore:
             entity = world.entities.get(message["id"])
             if entity is not None:
                 decide.brain(entity).command(world, entity, message)
+        elif op == "drop":
+            self.worlds.pop(message["canvas"], None)
 
     def step(self, dt: float) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []

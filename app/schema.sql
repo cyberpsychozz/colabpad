@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS canvas (
     bounds_h INTEGER NOT NULL CHECK (bounds_h > 0),
     stroke_count INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
+    deleted_at INTEGER,
     CHECK (kind = 'world' OR owner_user_id IS NOT NULL)
 );
 
